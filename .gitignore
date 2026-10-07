@@ -24,3 +24,6 @@ shared/art/approved/
 pipeline/tasks-art/
 pipeline/STATUS-art.md
 pipeline/.runner-art.lock
+pipeline/tasks-motion/
+pipeline/STATUS-motion.md
+pipeline/.runner-motion.lock

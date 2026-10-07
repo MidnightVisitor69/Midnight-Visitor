@@ -57,6 +57,18 @@ foreach ($s in $scenes) {
     if ($shots.Count -eq 0) { $fail.Add("no screenshots from $res") }
 }
 
+$audioDir = Join-Path $client 'audio'
+if (Test-Path $audioDir) {
+    Write-Output "== audio guard (loudness, pitch, clicks)"
+    $out = & 'E:\AI\ComfyUI\python_embeded\python.exe' (Join-Path $PSScriptRoot 'check_audio.py') $audioDir 2>&1 | Out-String -Width 300
+    $code = $LASTEXITCODE
+    Write-Output $out.TrimEnd()
+    if ($code -ne 0) {
+        $why = ($out -split "`r?`n") | Where-Object { $_ -match '^FAIL' }
+        $fail.Add("audio guard failed:`n" + ($why -join "`n"))
+    }
+}
+
 $nodeTests = Get-ChildItem (Join-Path $Worktree 'tools') -Recurse -Filter *.test.mjs -ErrorAction SilentlyContinue
 if ($nodeTests) {
     Write-Output "== node tests"
