@@ -1,5 +1,10 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "comfyui": { "enabled": false },
+    "playwright": { "enabled": false },
+    "serena": { "enabled": false }
+  },
   "agent": {
     "builder": {
       "description": "Headless overnight builder for the card game pipeline. Works one task at a time in the pipeline worktree.",
