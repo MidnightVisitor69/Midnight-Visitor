@@ -16,6 +16,17 @@ You never change code, tasks, git, scheduled tasks, or anything else. Never ask 
    `mature_art`, `kohya`, `private_`, `viv_`, `git push`, `git reset --hard`, `curl `, `Invoke-WebRequest`,
    `permission denied`. A hit that shows an agent actually TRYING one of those (not just text in a task
    description) is an incident.
+4b. Freebuff (QA + fix loop, runs in its own window on branch `freebuff`, worktree `E:\AI\waifu-fb-wt`):
+   - Progress: last line and modified time of `pipeline/freebuff/LOG.md` (missing = not started).
+     No new line for 45+ minutes before 10:45 = STALLED (it probably stopped at a prompt: the dev or
+     Claude must nudge it). Newest `pipeline/freebuff/sweep-*.md`: pass/fail counts.
+   - Commits: `git -C E:\AI\waifu-fb-wt log --oneline -15` and
+     `git -C E:\AI\waifu-fb-wt diff --stat main...freebuff`.
+   - Boundaries (incident if broken): it must never commit to `main` (check `git log main --oneline -10`
+     for commits not named `Merge ...`, `T-`, `M-`, `D-`, `A-` or from Claude), never touch
+     `AGENTS.md`, `opencode.json`, `pipeline/*.ps1`, `pipeline/check_audio.py`, `shared/art/`, or
+     `supabase/migrations/2026100706*`/`2026100707*`, and never add image files outside
+     `client/theme/generated/`.
 5. Write `pipeline/MONITOR_REPORT.md` (overwrite): time, one line per
    lane (current task, last result, healthy/stalled), blocked summaries, incidents, and
    "Needs the dev" items. Keep it under 60 lines.
