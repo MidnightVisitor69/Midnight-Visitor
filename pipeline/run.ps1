@@ -4,24 +4,36 @@
 # Flow per task: queue/ -> active/ -> builder (opencode) -> verify.ps1 -> review/ or blocked/.
 # The builder works in a separate worktree on branch "pipeline", so the main checkout
 # stays free for planning. Nothing here pushes, and nothing merges into main.
-param([int] $MaxTasks = 8, [int] $TaskTimeoutMin = 60, [ValidateSet('card', 'art', 'motion')] [string] $Lane = 'card')
+param([int] $MaxTasks = 8, [int] $TaskTimeoutMin = 60, [ValidateSet('card', 'art', 'motion', 'design', 'qa', 'fix')] [string] $Lane = 'card')
 
 # 'Continue' because git and Godot write progress to stderr; exit codes are checked by hand.
 $ErrorActionPreference = 'Continue'
 $P = $PSScriptRoot
 $OpenCode = "$env:APPDATA\npm\node_modules\opencode-ai\bin\opencode.exe"
-# Lanes run in parallel, each with its own repo/branch, worktree, queue, agent, model and verifier.
+# Lanes run in parallel, each with its own repo/branch, worktree, queue, agent and verifier.
 # The art lane is the image pipeline: a separate repo, per the AGENTS.md handoff contract.
-# The motion lane (animation + sound) shares the game repo on its own branch; Claude merges both.
-# Budget fallback (dev's choice): past the night's cap, set every Model to opencode/space-bunny-free.
+# Models are a fallback CHAIN (dev: "rely on free agents as much as we can, plenty of fallbacks"):
+# a provider/quota error moves the lane to the next model; a failed first attempt retries one step
+# further down. Free = Space Bunny Free only (no training on data, as in the KaT playbook).
+$Free = 'opencode/space-bunny-free'; $Flash = 'opencode-go/deepseek-v4.1-flash'; $Kimi = 'opencode-go/kimi-k3'
+$Root = Split-Path $P -Parent
 $Lanes = @{
-    card   = @{ Repo = (Split-Path $P -Parent); Wt = 'E:\AI\waifu-pipeline-wt'; Branch = 'pipeline'; Q = "$P\tasks"; Agent = 'builder'; Model = 'opencode-go/deepseek-v4.1-flash'; Verify = "$P\verify.ps1"; Tag = '' }
-    art    = @{ Repo = 'E:\AI\Waifu Image Pipeline'; Wt = 'E:\AI\waifu-art-wt'; Branch = 'pipeline'; Q = "$P\tasks-art"; Agent = 'artist'; Model = 'opencode-go/deepseek-v4.1-flash'; Verify = "$P\verify-art.ps1"; Tag = '-art' }
-    motion = @{ Repo = (Split-Path $P -Parent); Wt = 'E:\AI\waifu-motion-wt'; Branch = 'motion'; Q = "$P\tasks-motion"; Agent = 'animator'; Model = 'opencode-go/kimi-k3'; Verify = "$P\verify.ps1"; Tag = '-motion' }
+    card   = @{ Repo = $Root; Wt = 'E:\AI\waifu-pipeline-wt'; Branch = 'pipeline'; Q = "$P\tasks"; Agent = 'builder'; Models = @($Flash, $Free); Verify = "$P\verify.ps1"; Tag = '' }
+    art    = @{ Repo = 'E:\AI\Waifu Image Pipeline'; Wt = 'E:\AI\waifu-art-wt'; Branch = 'pipeline'; Q = "$P\tasks-art"; Agent = 'artist'; Models = @($Free, $Flash); Verify = "$P\verify-art.ps1"; Tag = '-art' }
+    motion = @{ Repo = $Root; Wt = 'E:\AI\waifu-motion-wt'; Branch = 'motion'; Q = "$P\tasks-motion"; Agent = 'animator'; Models = @($Kimi, $Flash, $Free); Verify = "$P\verify.ps1"; Tag = '-motion' }
+    design = @{ Repo = $Root; Wt = 'E:\AI\waifu-design-wt'; Branch = 'design'; Q = "$P\tasks-design"; Agent = 'designer'; Models = @($Kimi, $Flash, $Free); Verify = "$P\verify.ps1"; Tag = '-design' }
+    qa     = @{ Repo = $Root; Wt = 'E:\AI\waifu-qa-wt'; Branch = 'qa'; Q = "$P\tasks-qa"; Agent = 'qa'; Models = @($Free, $Kimi); Verify = "$P\verify.ps1"; Tag = '-qa' }
+    fix    = @{ Repo = $Root; Wt = 'E:\AI\waifu-fix-wt'; Branch = 'fix'; Q = "$P\tasks-fix"; Agent = 'fixer'; Models = @($Flash, $Free); Verify = "$P\verify.ps1"; Tag = '-fix' }
 }
 $L = $Lanes[$Lane]
-$Repo = $L.Repo; $Wt = $L.Wt; $Q = $L.Q; $Model = $L.Model
+$Repo = $L.Repo; $Wt = $L.Wt; $Q = $L.Q
 $Branch = $L.Branch
+# Budget override: pipeline/FREE_ONLY makes every lane free-only (Claude sets it when the cap is hit).
+# Local Devstral (Ollama) is the last resort: free and private, but slow and it shares the GPU.
+$Models = if (Test-Path "$P\FREE_ONLY") { @($Free, 'ollama/devstral:latest') } else { $L.Models }
+$OffsetFile = "$P\.model-offset$($L.Tag)"
+$Offset = [int](Get-Content $OffsetFile -ErrorAction SilentlyContinue)
+function Pick-Model([int] $attempt) { $Models[[Math]::Min($Offset + $attempt - 1, $Models.Count - 1)] }
 foreach ($d in 'queue', 'active', 'review', 'blocked', 'done') { New-Item -ItemType Directory -Force "$Q\$d" | Out-Null }
 New-Item -ItemType Directory -Force "$P\logs", "$P\shots" | Out-Null
 $RunLog = "$P\logs\runner$($L.Tag).log"
@@ -66,9 +78,9 @@ function Move-Task([IO.FileInfo] $f, [string] $to, [string] $append = '') {
     return Get-Item $dest
 }
 
-function Invoke-Builder([string] $id, [string] $message, [string] $logFile) {
+function Invoke-Builder([string] $id, [string] $message, [string] $logFile, [string] $model) {
     # PS 5.1 Start-Process joins arguments without quoting, so quote by hand.
-    $argLine = "run --agent $($L.Agent) --model $Model --auto --dir `"$Wt`" --title `"$id`" `"$message`""
+    $argLine = "run --agent $($L.Agent) --model $model --auto --dir `"$Wt`" --title `"$id`" `"$message`""
     $proc = Start-Process -FilePath $OpenCode -ArgumentList $argLine -WorkingDirectory $Wt -NoNewWindow -PassThru `
         -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
     if (-not $proc.WaitForExit($TaskTimeoutMin * 60000)) {
@@ -88,9 +100,10 @@ function Invoke-Builder([string] $id, [string] $message, [string] $logFile) {
 
 # ---------------------------------------------------------------- start-up guards
 if (Test-Path "$P\STOP") { Log 'STOP present; not starting'; Write-Status; exit 0 }
-if (Test-Path "$P\.cooldown") {
-    if ((Get-Date) -lt [datetime](Get-Content "$P\.cooldown")) { Write-Status; exit 0 }
-    Remove-Item "$P\.cooldown"
+$Cooldown = "$P\.cooldown$($L.Tag)"   # per lane: one provider outage shouldn't idle every lane
+if (Test-Path $Cooldown) {
+    if ((Get-Date) -lt [datetime](Get-Content $Cooldown)) { Write-Status; exit 0 }
+    Remove-Item $Cooldown
 }
 $Lock = "$P\.runner$($L.Tag).lock"
 if (Test-Path $Lock) {
@@ -119,6 +132,22 @@ try {
         Log "$id recovered from interrupted run"
     }
 
+    # QA loop: when the fix lane is idle and main moved since the last sweep, queue a new sweep.
+    # Capped so a never-converging loop can't burn the night.
+    if ($Lane -eq 'qa' -and (Test-Path "$P\qa\SWEEP_TEMPLATE.md")) {
+        $fixBusy = @(Get-ChildItem "$P\tasks-fix\queue\*.md", "$P\tasks-fix\active\*.md" -ErrorAction SilentlyContinue).Count
+        $qaBusy = @(Get-ChildItem "$Q\queue\*.md", "$Q\active\*.md" -ErrorAction SilentlyContinue).Count
+        $mainHead = (git -C $Repo rev-parse main) | Select-Object -Last 1
+        $sweeps = @(Get-ChildItem "$Q\*\Q-*.md" -ErrorAction SilentlyContinue).Count
+        if (-not $fixBusy -and -not $qaBusy -and $mainHead -ne (Get-Content "$P\.qa-last-main" -ErrorAction SilentlyContinue) -and $sweeps -lt 12) {
+            $sid = 'Q-{0:000}' -f ($sweeps + 1)
+            (Get-Content "$P\qa\SWEEP_TEMPLATE.md" -Raw).Replace('{ID}', $sid).Replace('{N}', [string]($sweeps + 1)) |
+                Set-Content "$Q\queue\$sid-sweep.md" -Encoding utf8
+            Set-Content "$P\.qa-last-main" $mainHead
+            Log "queued $sid (main at $mainHead)"
+        }
+    }
+
     $done = 0
     while ($done -lt $MaxTasks -and -not (Test-Path "$P\STOP")) {
         # Pick up whatever landed on main (merged work, fixes, new rules) before choosing a task.
@@ -139,6 +168,11 @@ try {
         @{ base = $base; started = (Get-Date).ToString('s') } | ConvertTo-Json | Set-Content "$($task.FullName).state.json"
         Copy-Item $task.FullName "$Wt\.task.md" -Force
         Remove-Item "$Wt\.verify.txt" -ErrorAction SilentlyContinue
+        if ($Lane -eq 'qa') {
+            # So QA never files duplicates of fixes already queued or in progress.
+            Get-ChildItem "$P\tasks-fix\queue\*.md", "$P\tasks-fix\active\*.md", "$P\tasks-fix\review\*.md" -ErrorAction SilentlyContinue |
+                ForEach-Object { (Get-Content $_.FullName -TotalCount 1) } | Set-Content "$Wt\.qa_open_fixes.txt" -Encoding utf8
+        }
         $shots = "$P\shots\$id"
         Write-Status "Building $id"
         Log "$id started from $base"
@@ -151,7 +185,9 @@ try {
                 "Task $id, attempt 2. Your first attempt failed independent verification; the output is in .verify.txt. Read AGENTS.md, pipeline/BUILDER.md, .task.md and .verify.txt, fix every problem listed, and commit."
             }
             $log = "$P\logs\$id.attempt$attempt.log"
-            $b = Invoke-Builder $id $msg $log
+            $model = Pick-Model $attempt
+            Log "$id attempt $attempt on $model"
+            $b = Invoke-Builder $id $msg $log $model
             if ($b -eq 'infra') { $result = 'infra'; break }
 
             # The runner commits leftovers so verify judges exactly what will land.
@@ -182,8 +218,14 @@ try {
         if ($result -eq 'infra') {
             G reset -q --hard $base | Out-Null
             Move-Task $task 'queue' | Out-Null
-            (Get-Date).AddMinutes(60).ToString('s') | Set-Content "$P\.cooldown"
-            Log "$id hit a model/provider error; requeued, cooling down 60 min"
+            if ($Offset + 1 -lt $Models.Count) {
+                $Offset++; Set-Content $OffsetFile $Offset
+                Log "$id hit a provider/quota error on $model; falling back to $($Models[$Offset])"
+                continue
+            }
+            Set-Content $OffsetFile 0
+            (Get-Date).AddMinutes(60).ToString('s') | Set-Content $Cooldown
+            Log "${id}: every model in the chain failed; requeued, lane cooling down 60 min"
             break
         }
         if ($result -eq 'pass') {
@@ -195,6 +237,28 @@ try {
             ) -join "`n"
             Move-Task $task 'review' $note | Out-Null
             Log "$id VERIFIED -> review"
+            if ($Lane -eq 'qa' -and (Test-Path "$Wt\.qa_out")) {
+                New-Item -ItemType Directory -Force "$P\qa\reports", "$P\tasks-fix\queue" | Out-Null
+                Copy-Item "$Wt\.qa_out\report.md" "$P\qa\reports\$id.md" -ErrorAction SilentlyContinue
+                Get-ChildItem "$Wt\.qa_out\fix_tasks\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
+                    # Flow problems (not bugs) go to the design lane, per the dev.
+                    $dest = if ((Get-Content $_.FullName -Raw) -match '(?im)^Kind:\s*flow') { "$P\tasks-design\queue" } else { "$P\tasks-fix\queue" }
+                    Copy-Item $_.FullName $dest
+                }
+                Get-ChildItem "$Wt\.qa_out" -Recurse -File | Remove-Item -Force
+                Log "$id fix tasks filed"
+            }
+            # Claude is near its usage limit, so verified work lands automatically. Verification is
+            # independent and the QA loop re-checks main after merges; a conflict leaves it in review.
+            # Opt-in only: the dev creates pipeline/AUTO_MERGE to allow it.
+            if (-not (Test-Path "$P\AUTO_MERGE")) { Log "$id waiting in review (auto-merge off)" }
+            elseif ((& git -C $Repo merge --no-ff --no-edit $Branch -m "Merge $id from $Branch" 2>&1 | Out-String) -and $LASTEXITCODE) {
+                & git -C $Repo merge --abort 2>&1 | Out-Null
+                Log "$id auto-merge into main CONFLICTED; left in review for the overseer"
+            } else {
+                Move-Item "$Q\review\$($task.Name)" "$Q\done\" -Force -ErrorAction SilentlyContinue
+                Log "$id auto-merged into main"
+            }
         } else {
             G tag -f "failed/$id" | Out-Null
             G reset -q --hard $base | Out-Null
