@@ -8,7 +8,7 @@ const MainScript := preload("res://scripts/main.gd")
 const DevFlagsScript := preload("res://scripts/dev/dev_flags.gd")
 
 const HOLO_TEST_SCENE := "res://scenes/dev/holo_test.tscn"
-const MAIN_SCENE := "res://scenes/main.tscn"
+const APP_SHELL_SCENE := "res://scenes/app/app_shell.tscn"
 
 
 # --- allowed_variants -------------------------------------------------------
@@ -98,19 +98,18 @@ func test_hide_menu_toggles_nodes() -> void:
 
 # --- dev routing ------------------------------------------------------------
 
-func test_start_in_holo_test_routes_to_holo_test() -> void:
-	var m := MainScript.new()
-	assert_eq(m.start_scene_path(), HOLO_TEST_SCENE)
-	m.free()
+func test_start_flag_routes_to_holo_test() -> void:
+	assert_eq(MainScript.scene_for_flag(true), HOLO_TEST_SCENE, "flag on")
 
 
 func test_routing_function_covers_both_branches() -> void:
 	assert_eq(MainScript.scene_for_flag(true), HOLO_TEST_SCENE, "flag on")
-	assert_eq(MainScript.scene_for_flag(false), MAIN_SCENE, "flag off")
+	assert_eq(MainScript.scene_for_flag(false), APP_SHELL_SCENE, "flag off")
 
 
-func test_dev_flag_is_on_for_this_review() -> void:
-	assert_true(DevFlagsScript.START_IN_HOLO_TEST, "T-003 review needs the bench reachable")
+func test_app_shell_is_the_default_boot_path() -> void:
+	# T-005 flipped the default to the app; the bench is still reachable in debug.
+	assert_true(not DevFlagsScript.START_IN_HOLO_TEST, "app shell must be the default")
 
 
 # --- screenshot states ------------------------------------------------------
