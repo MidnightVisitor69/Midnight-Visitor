@@ -27,3 +27,6 @@ pipeline/.runner-art.lock
 pipeline/tasks-motion/
 pipeline/STATUS-motion.md
 pipeline/.runner-motion.lock
+pipeline/tasks-design/
+pipeline/STATUS-design.md
+pipeline/.runner-design.lock

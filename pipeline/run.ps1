@@ -4,7 +4,7 @@
 # Flow per task: queue/ -> active/ -> builder (opencode) -> verify.ps1 -> review/ or blocked/.
 # The builder works in a separate worktree on branch "pipeline", so the main checkout
 # stays free for planning. Nothing here pushes, and nothing merges into main.
-param([int] $MaxTasks = 8, [int] $TaskTimeoutMin = 60, [ValidateSet('card', 'art', 'motion')] [string] $Lane = 'card')
+param([int] $MaxTasks = 8, [int] $TaskTimeoutMin = 60, [ValidateSet('card', 'art', 'motion', 'design')] [string] $Lane = 'card')
 
 # 'Continue' because git and Godot write progress to stderr; exit codes are checked by hand.
 $ErrorActionPreference = 'Continue'
@@ -18,6 +18,7 @@ $Lanes = @{
     card   = @{ Repo = (Split-Path $P -Parent); Wt = 'E:\AI\waifu-pipeline-wt'; Branch = 'pipeline'; Q = "$P\tasks"; Agent = 'builder'; Model = 'opencode-go/deepseek-v4.1-flash'; Verify = "$P\verify.ps1"; Tag = '' }
     art    = @{ Repo = 'E:\AI\Waifu Image Pipeline'; Wt = 'E:\AI\waifu-art-wt'; Branch = 'pipeline'; Q = "$P\tasks-art"; Agent = 'artist'; Model = 'opencode-go/deepseek-v4.1-flash'; Verify = "$P\verify-art.ps1"; Tag = '-art' }
     motion = @{ Repo = (Split-Path $P -Parent); Wt = 'E:\AI\waifu-motion-wt'; Branch = 'motion'; Q = "$P\tasks-motion"; Agent = 'animator'; Model = 'opencode-go/kimi-k3'; Verify = "$P\verify.ps1"; Tag = '-motion' }
+    design = @{ Repo = (Split-Path $P -Parent); Wt = 'E:\AI\waifu-design-wt'; Branch = 'design'; Q = "$P\tasks-design"; Agent = 'designer'; Model = 'opencode-go/kimi-k3'; Verify = "$P\verify.ps1"; Tag = '-design' }
 }
 $L = $Lanes[$Lane]
 $Repo = $L.Repo; $Wt = $L.Wt; $Q = $L.Q; $Model = $L.Model
