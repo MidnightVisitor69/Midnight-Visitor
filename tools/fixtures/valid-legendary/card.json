@@ -1,0 +1,10 @@
+{
+  "card_id": "fixture-legendary",
+  "character_name": "Fixture Legendary",
+  "rarity": "legendary",
+  "set": "test-set",
+  "tags": ["neon", "city", "rain"],
+  "approved": true,
+  "imported": false,
+  "gen": { "model": "fixture-model", "seed": 4, "prompt_id": "fixture-legendary-v1" }
+}
