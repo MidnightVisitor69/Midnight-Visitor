@@ -29,7 +29,8 @@ $L = $Lanes[$Lane]
 $Repo = $L.Repo; $Wt = $L.Wt; $Q = $L.Q
 $Branch = $L.Branch
 # Budget override: pipeline/FREE_ONLY makes every lane free-only (Claude sets it when the cap is hit).
-$Models = if (Test-Path "$P\FREE_ONLY") { @($Free) } else { $L.Models }
+# Local Devstral (Ollama) is the last resort: free and private, but slow and it shares the GPU.
+$Models = if (Test-Path "$P\FREE_ONLY") { @($Free, 'ollama/devstral:latest') } else { $L.Models }
 $OffsetFile = "$P\.model-offset$($L.Tag)"
 $Offset = [int](Get-Content $OffsetFile -ErrorAction SilentlyContinue)
 function Pick-Model([int] $attempt) { $Models[[Math]::Min($Offset + $attempt - 1, $Models.Count - 1)] }
