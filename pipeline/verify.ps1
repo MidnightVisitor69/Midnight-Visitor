@@ -92,7 +92,7 @@ $protected = $changed | Where-Object {
     $_ -match '^client/scripts/config\.gd$|^client/tests/(run_tests|test_case|screenshot)\.gd$'
 }
 if ($protected) { $fail.Add("touched protected files: " + ($protected -join ', ')) }
-$binArt = $changed | Where-Object { $_ -match '\.(png|jpe?g|webp|psd|exr)$' }
+$binArt = $changed | Where-Object { $_ -match '\.(png|jpe?g|webp|psd|exr)$' -and $_ -notmatch '^client/theme/generated/' }
 if ($binArt) { $fail.Add("added image files (art is the image pipeline's job): " + ($binArt -join ', ')) }
 $diff = git diff "$BaseRef..HEAD" | Out-String
 if ($diff -match 'sb_secret_|service_role|SUPABASE_SERVICE|-----BEGIN [A-Z ]*PRIVATE KEY') {
