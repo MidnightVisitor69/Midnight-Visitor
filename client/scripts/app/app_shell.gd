@@ -45,6 +45,11 @@ var status := "signing_in"
 var error_message := ""
 var active_tab := TAB_HOME
 
+## Whether this build may show dev-only affordances (the holo bench shortcut).
+## The engine is sampled once here so the visibility decision is a plain bool
+## that tests can pass in both ways instead of depending on how they were built.
+var is_debug := OS.is_debug_build()
+
 var _built := false
 ## Set by screenshot_setup so the harness never fires a real sign-in request.
 var _screenshot_mode := false
@@ -193,7 +198,7 @@ func _build_top_bar() -> void:
 	row.add_child(_gem_label)
 
 	# The holo bench never ships enabled, but devs need it reachable.
-	if OS.is_debug_build():
+	if is_debug:
 		var holo := Button.new()
 		holo.name = "HoloTestButton"
 		holo.text = "Holo test"
