@@ -127,6 +127,9 @@ func _connect_autoloads() -> void:
 
 
 func _state_node() -> Node:
+	# Tests build the shell detached from the tree; absolute /root lookups error there.
+	if not is_inside_tree():
+		return null
 	return get_node_or_null("/root/GameState")
 
 
