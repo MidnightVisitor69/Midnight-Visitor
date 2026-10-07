@@ -29,8 +29,13 @@ $L = $Lanes[$Lane]
 $Repo = $L.Repo; $Wt = $L.Wt; $Q = $L.Q
 $Branch = $L.Branch
 # Budget override: pipeline/FREE_ONLY makes every lane free-only (Claude sets it when the cap is hit).
-# Local Devstral (Ollama) is the last resort: free and private, but slow and it shares the GPU.
-$Models = if (Test-Path "$P\FREE_ONLY") { @($Free, 'ollama/devstral:latest') } else { $L.Models }
+# No local models: they would fight the image renders for the GPU (dev's call).
+# "alt|<model>" runs on the dev's second opencode account (its own login in E:\AI\Tools\opencode-alt,
+# which the dev signs into themselves); used only after the main account's options are exhausted.
+$AltHome = 'E:\AI\Tools\opencode-alt'
+$HasAlt = Test-Path "$AltHome\opencode\auth.json"
+$Models = if (Test-Path "$P\FREE_ONLY") { @($Free, "alt|$Free", "alt|$Flash", 'alt|opencode/deepseek-v4.1-flash') } else { $L.Models }
+if (-not $HasAlt) { $Models = @($Models | Where-Object { $_ -notlike 'alt|*' }) }
 $OffsetFile = "$P\.model-offset$($L.Tag)"
 $Offset = [int](Get-Content $OffsetFile -ErrorAction SilentlyContinue)
 function Pick-Model([int] $attempt) { $Models[[Math]::Min($Offset + $attempt - 1, $Models.Count - 1)] }
@@ -79,10 +84,14 @@ function Move-Task([IO.FileInfo] $f, [string] $to, [string] $append = '') {
 }
 
 function Invoke-Builder([string] $id, [string] $message, [string] $logFile, [string] $model) {
+    # The child process inherits XDG_DATA_HOME at launch, so set it only around Start-Process.
+    $useAlt = $model -like 'alt|*'
+    if ($useAlt) { $model = $model.Substring(4); $env:XDG_DATA_HOME = $AltHome }
     # PS 5.1 Start-Process joins arguments without quoting, so quote by hand.
     $argLine = "run --agent $($L.Agent) --model $model --auto --dir `"$Wt`" --title `"$id`" `"$message`""
     $proc = Start-Process -FilePath $OpenCode -ArgumentList $argLine -WorkingDirectory $Wt -NoNewWindow -PassThru `
         -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
+    if ($useAlt) { Remove-Item Env:XDG_DATA_HOME -ErrorAction SilentlyContinue }
     if (-not $proc.WaitForExit($TaskTimeoutMin * 60000)) {
         & taskkill /PID $proc.Id /T /F 2>&1 | Out-Null
         Log "$id builder timed out after $TaskTimeoutMin min; killed"
