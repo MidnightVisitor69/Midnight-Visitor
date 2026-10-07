@@ -10,6 +10,7 @@ AGENTS.md, do it, and write the choice under "Decisions" in your final report.
 
 ## Hard rules
 - Work only inside this folder. Never touch anything outside it.
+- The D: drive is off limits, always: never read, list, search, or write anything on D:.
 - Never edit: `AGENTS.md`, `opencode.json`, `pipeline/`, `shared/art/`, the existing
   `supabase/migrations/*.sql` files, `client/scripts/config.gd`, or the test harness files
   `client/tests/run_tests.gd`, `test_case.gd`, `screenshot.gd`.
