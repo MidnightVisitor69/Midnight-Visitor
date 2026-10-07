@@ -64,11 +64,13 @@ function Invoke-Builder([string] $id, [string] $message, [string] $logFile) {
         Log "$id builder timed out after $TaskTimeoutMin min; killed"
         return 'timeout'
     }
-    $out = (Get-Content $logFile, "$logFile.err" -Raw -ErrorAction SilentlyContinue) -join "`n"
     # Quota/auth/provider errors are not the task's fault: back off instead of burning attempts.
-    if ($out -match '(?i)rate.?limit|quota|insufficient.?(balance|credit)|unauthori[sz]ed|\b401\b|\b429\b|ProviderModelNotFound|ECONNREFUSED|ENOTFOUND') {
-        if ((Get-Item $logFile -ErrorAction SilentlyContinue).Length -lt 4000) { return 'infra' }
-    }
+    # Only when the builder delivered no report: task text itself may mention 401/429 (T-005 did,
+    # and an earlier version of this check threw away finished work).
+    $stdout = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
+    if ($stdout -match '## Report') { return 'ok' }
+    $errText = Get-Content "$logFile.err" -Raw -ErrorAction SilentlyContinue
+    if ($errText -match '(?i)rate.?limit|quota|insufficient.?(balance|credit)|ProviderModelNotFound|ECONNREFUSED|ENOTFOUND|AI_APICallError') { return 'infra' }
     return 'ok'
 }
 
