@@ -10,6 +10,10 @@ const LIGHT_SHADER := preload("res://shaders/card/card_light.gdshader")
 
 const TIERS: Array[String] = ["common", "rare", "epic", "legendary"]
 
+## Foil strength and how hard the depth map suppresses it over the figure.
+const HOLO_INTENSITY := 1.0
+const HOLO_DEPTH_MASK := 0.55
+
 ## Placeholder palette until client/theme/tokens.tres lands (AGENTS.md task 3).
 const FRAME_COLORS := {
 	"common": Color(0.42, 0.46, 0.58),
@@ -20,6 +24,8 @@ const FRAME_COLORS := {
 const FRAME_MARGIN := 8.0
 
 var rarity := "common"
+## Requested holo variant; only drawn when HoloVariants.applies_to() agrees.
+var variant := "none"
 ## Pin the tilt for screenshots/tests; ignored unless use_tilt_override is on.
 var tilt_override := Vector2.ZERO
 var use_tilt_override := false
@@ -34,6 +40,7 @@ var _base: TextureRect
 var _bg: TextureRect
 var _char: TextureRect
 var _light: ColorRect
+var _holo: ColorRect
 var _particles: CPUParticles2D
 var _tilt_input: TiltInput
 var _materials: Array[ShaderMaterial] = []
@@ -57,17 +64,40 @@ func active_tier() -> String:
 	return _tier
 
 
-## The art layers actually used, in draw order (plus depth / particle accents).
+## Request a foil. The rarity rule is re-checked here: a common drops it even if
+## the server (or a bad payload) hands us "gold".
+func set_variant(p_variant: String) -> void:
+	variant = p_variant
+	_ensure_built()
+	_apply_holo()
+
+
+## Resource path of the shader currently foiling the card, "" when none is.
+func holo_shader_path() -> String:
+	if _holo == null or not _holo.visible:
+		return ""
+	var mat := _holo.material as ShaderMaterial
+	if mat == null or mat.shader == null:
+		return ""
+	return mat.shader.resource_path
+
+
+## The art layers actually used, in draw order (plus depth / particle accents
+## and the foil overlay when one is active).
 func layer_names() -> PackedStringArray:
+	var names: PackedStringArray
 	match _tier:
 		"rare":
-			return PackedStringArray(["base", "depth"])
+			names = PackedStringArray(["base", "depth"])
 		"epic":
-			return PackedStringArray(["bg", "char", "depth"])
+			names = PackedStringArray(["bg", "char", "depth"])
 		"legendary":
-			return PackedStringArray(["bg", "char", "depth", "particles"])
+			names = PackedStringArray(["bg", "char", "depth", "particles"])
 		_:
-			return PackedStringArray(["base"])
+			names = PackedStringArray(["base"])
+	if _holo != null and _holo.visible:
+		names.append("holo")
+	return names
 
 
 func _process(_delta: float) -> void:
@@ -157,6 +187,16 @@ func _ensure_built() -> void:
 	_particles.visible = false
 	_root.add_child(_particles)
 
+	# Foil overlay: full-card additive sheen driven by the variant shader. It is
+	# added after the art so it sits on top of it, but stays under the frame,
+	# which is a child of CardView added later.
+	_holo = ColorRect.new()
+	_holo.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_holo.color = Color.WHITE
+	_holo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_holo.visible = false
+	_root.add_child(_holo)
+
 	# Drawn last so the border sits on top of the art.
 	_frame = Panel.new()
 	_frame.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -192,6 +232,8 @@ func _apply_tier() -> void:
 		t.visible = false
 	_light.material = null
 	_light.visible = false
+	_holo.material = null
+	_holo.visible = false
 	_particles.visible = false
 	_particles.emitting = false
 
@@ -215,7 +257,30 @@ func _apply_tier() -> void:
 
 	_update_frame()
 	_apply_layout()
+	_apply_holo()
 	_apply_tilt()
+
+
+## Builds the foil material for the current variant, or hides the overlay when
+## the variant does not apply to this rarity.
+func _apply_holo() -> void:
+	_holo.material = null
+	_holo.visible = false
+	if not HoloVariants.applies_to(rarity, variant):
+		return
+	var shader := HoloVariants.shader_for(variant)
+	if shader == null:
+		return
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	mat.set_shader_parameter("ramp", HoloVariants.ramp_for(variant))
+	mat.set_shader_parameter("intensity", HOLO_INTENSITY)
+	# Rare and up always carry a depth map, so the figure can be spared.
+	mat.set_shader_parameter("depth_tex", _art.get("depth"))
+	mat.set_shader_parameter("depth_mask", HOLO_DEPTH_MASK)
+	mat.set_shader_parameter("tilt", tilt_override if use_tilt_override else _tilt_input.tilt)
+	_holo.material = mat
+	_holo.visible = true
 
 
 func _show(layer: TextureRect, key: String) -> void:
@@ -250,6 +315,8 @@ func _apply_tilt() -> void:
 		mat.set_shader_parameter("tilt", t)
 	if _light.material is ShaderMaterial:
 		_light.material.set_shader_parameter("tilt", t)
+	if _holo.material is ShaderMaterial:
+		_holo.material.set_shader_parameter("tilt", t)
 
 
 func _parallax_material(depth: Variant, strength: float) -> ShaderMaterial:
