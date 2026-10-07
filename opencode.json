@@ -67,10 +67,16 @@
           "schtasks*": "deny",
           "Register-ScheduledTask*": "deny",
           "setx*": "deny",
-          "reg *": "deny"
+          "reg *": "deny",
+          "*D:/*": "deny",
+          "*D:\\*": "deny",
+          "*d:/*": "deny",
+          "*d:\\*": "deny"
         },
         "external_directory": {
           "*": "deny",
+          "D:/**": "deny",
+          "D:\\**": "deny",
           "E:/AI/Tools/Godot/*": "allow",
           "E:\\AI\\Tools\\Godot\\*": "allow"
         },
