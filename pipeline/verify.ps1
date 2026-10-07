@@ -57,6 +57,20 @@ foreach ($s in $scenes) {
     if ($shots.Count -eq 0) { $fail.Add("no screenshots from $res") }
 }
 
+$nodeTests = Get-ChildItem (Join-Path $Worktree 'tools') -Recurse -Filter *.test.mjs -ErrorAction SilentlyContinue
+if ($nodeTests) {
+    Write-Output "== node tests"
+    Push-Location $Worktree
+    $out = & node --test ($nodeTests | ForEach-Object { $_.FullName }) 2>&1 | Out-String -Width 300
+    $code = $LASTEXITCODE
+    Pop-Location
+    ($out -split "`r?`n") | Where-Object { $_ -match '^# (tests|pass|fail)|^not ok' } | Write-Output
+    if ($code -ne 0) {
+        $why = ($out -split "`r?`n") | Where-Object { $_ -match 'not ok|Error|expected|actual' } | Select-Object -First 30
+        $fail.Add("node tests exit ${code}:`n" + ($why -join "`n"))
+    }
+}
+
 Write-Output "== diff guards"
 Push-Location $Worktree
 $changed = git diff --name-only "$BaseRef..HEAD"
