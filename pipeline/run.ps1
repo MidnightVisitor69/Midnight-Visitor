@@ -4,22 +4,24 @@
 # Flow per task: queue/ -> active/ -> builder (opencode) -> verify.ps1 -> review/ or blocked/.
 # The builder works in a separate worktree on branch "pipeline", so the main checkout
 # stays free for planning. Nothing here pushes, and nothing merges into main.
-param([int] $MaxTasks = 8, [int] $TaskTimeoutMin = 60, [ValidateSet('card', 'art')] [string] $Lane = 'card')
+param([int] $MaxTasks = 8, [int] $TaskTimeoutMin = 60, [ValidateSet('card', 'art', 'motion')] [string] $Lane = 'card')
 
 # 'Continue' because git and Godot write progress to stderr; exit codes are checked by hand.
 $ErrorActionPreference = 'Continue'
 $P = $PSScriptRoot
 $OpenCode = "$env:APPDATA\npm\node_modules\opencode-ai\bin\opencode.exe"
-$Model = 'opencode-go/deepseek-v4.1-flash'
-# Two lanes run in parallel, each with its own repo, worktree, queue, agent and verifier.
+# Lanes run in parallel, each with its own repo/branch, worktree, queue, agent, model and verifier.
 # The art lane is the image pipeline: a separate repo, per the AGENTS.md handoff contract.
+# The motion lane (animation + sound) shares the game repo on its own branch; Claude merges both.
+# Budget fallback (dev's choice): past the night's cap, set every Model to opencode/space-bunny-free.
 $Lanes = @{
-    card = @{ Repo = (Split-Path $P -Parent); Wt = 'E:\AI\waifu-pipeline-wt'; Q = "$P\tasks"; Agent = 'builder'; Verify = "$P\verify.ps1"; Tag = '' }
-    art  = @{ Repo = 'E:\AI\Waifu Image Pipeline'; Wt = 'E:\AI\waifu-art-wt'; Q = "$P\tasks-art"; Agent = 'artist'; Verify = "$P\verify-art.ps1"; Tag = '-art' }
+    card   = @{ Repo = (Split-Path $P -Parent); Wt = 'E:\AI\waifu-pipeline-wt'; Branch = 'pipeline'; Q = "$P\tasks"; Agent = 'builder'; Model = 'opencode-go/deepseek-v4.1-flash'; Verify = "$P\verify.ps1"; Tag = '' }
+    art    = @{ Repo = 'E:\AI\Waifu Image Pipeline'; Wt = 'E:\AI\waifu-art-wt'; Branch = 'pipeline'; Q = "$P\tasks-art"; Agent = 'artist'; Model = 'opencode-go/deepseek-v4.1-flash'; Verify = "$P\verify-art.ps1"; Tag = '-art' }
+    motion = @{ Repo = (Split-Path $P -Parent); Wt = 'E:\AI\waifu-motion-wt'; Branch = 'motion'; Q = "$P\tasks-motion"; Agent = 'animator'; Model = 'opencode-go/kimi-k3'; Verify = "$P\verify.ps1"; Tag = '-motion' }
 }
 $L = $Lanes[$Lane]
-$Repo = $L.Repo; $Wt = $L.Wt; $Q = $L.Q
-$Branch = 'pipeline'
+$Repo = $L.Repo; $Wt = $L.Wt; $Q = $L.Q; $Model = $L.Model
+$Branch = $L.Branch
 foreach ($d in 'queue', 'active', 'review', 'blocked', 'done') { New-Item -ItemType Directory -Force "$Q\$d" | Out-Null }
 New-Item -ItemType Directory -Force "$P\logs", "$P\shots" | Out-Null
 $RunLog = "$P\logs\runner$($L.Tag).log"
@@ -28,6 +30,16 @@ $F = '```'   # markdown fence; spelled once because backticks are PowerShell's e
 function Log([string] $m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $m" | Add-Content $RunLog -Encoding utf8 }
 function G { & git -C $Wt @args 2>&1 | ForEach-Object { "$_" } }
 function TaskId([IO.FileInfo] $f) { ($f.BaseName -split '-')[0..1] -join '-' }
+# A task may declare "Requires: path, path" (worktree-relative). It waits in the queue until those
+# exist on its branch, so lanes that depend on each other's merged work never start too early.
+function Test-Ready([IO.FileInfo] $f) {
+    $req = Select-String -Path $f.FullName -Pattern '^Requires:\s*(.+)$' | Select-Object -First 1
+    if (-not $req) { return $true }
+    foreach ($p in ($req.Matches[0].Groups[1].Value -split ',')) {
+        if (-not (Test-Path (Join-Path $Wt $p.Trim()))) { return $false }
+    }
+    return $true
+}
 
 function Write-Status([string] $note = '') {
     $lines = @("# Pipeline status", "", "Updated $(Get-Date -Format 'yyyy-MM-dd HH:mm')  ")
@@ -109,19 +121,18 @@ try {
 
     $done = 0
     while ($done -lt $MaxTasks -and -not (Test-Path "$P\STOP")) {
-        $task = Get-ChildItem "$Q\queue\*.md" -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -First 1
-        if (-not $task) { break }
-        $id = TaskId $task
-
-        # Pick up whatever the dev committed on main (fixes, new rules) before building on top.
+        # Pick up whatever landed on main (merged work, fixes, new rules) before choosing a task.
         G merge -q --no-edit main | Out-Null
         if ($LASTEXITCODE) {
             G merge --abort | Out-Null
             Log "merge of main into $Branch conflicts; stopping"
-            Write-Status "Merging main into the pipeline branch conflicts. Claude/dev must resolve before anything else runs."
+            Write-Status "Merging main into the $Branch branch conflicts. Claude/dev must resolve before anything else runs."
             break
         }
         G clean -fdq -e .godot | Out-Null
+        $task = Get-ChildItem "$Q\queue\*.md" -ErrorAction SilentlyContinue | Sort-Object Name | Where-Object { Test-Ready $_ } | Select-Object -First 1
+        if (-not $task) { break }
+        $id = TaskId $task
         $base = (G rev-parse HEAD) | Select-Object -Last 1
 
         $task = Move-Task $task 'active'
