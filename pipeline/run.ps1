@@ -4,20 +4,25 @@
 # Flow per task: queue/ -> active/ -> builder (opencode) -> verify.ps1 -> review/ or blocked/.
 # The builder works in a separate worktree on branch "pipeline", so the main checkout
 # stays free for planning. Nothing here pushes, and nothing merges into main.
-param([int] $MaxTasks = 8, [int] $TaskTimeoutMin = 60)
+param([int] $MaxTasks = 8, [int] $TaskTimeoutMin = 60, [ValidateSet('card', 'art')] [string] $Lane = 'card')
 
 # 'Continue' because git and Godot write progress to stderr; exit codes are checked by hand.
 $ErrorActionPreference = 'Continue'
 $P = $PSScriptRoot
-$Repo = Split-Path $P -Parent
-$Wt = 'E:\AI\waifu-pipeline-wt'
-$Branch = 'pipeline'
 $OpenCode = "$env:APPDATA\npm\node_modules\opencode-ai\bin\opencode.exe"
 $Model = 'opencode-go/deepseek-v4.1-flash'
-$Q = "$P\tasks"
+# Two lanes run in parallel, each with its own repo, worktree, queue, agent and verifier.
+# The art lane is the image pipeline: a separate repo, per the AGENTS.md handoff contract.
+$Lanes = @{
+    card = @{ Repo = (Split-Path $P -Parent); Wt = 'E:\AI\waifu-pipeline-wt'; Q = "$P\tasks"; Agent = 'builder'; Verify = "$P\verify.ps1"; Tag = '' }
+    art  = @{ Repo = 'E:\AI\Waifu Image Pipeline'; Wt = 'E:\AI\waifu-art-wt'; Q = "$P\tasks-art"; Agent = 'artist'; Verify = "$P\verify-art.ps1"; Tag = '-art' }
+}
+$L = $Lanes[$Lane]
+$Repo = $L.Repo; $Wt = $L.Wt; $Q = $L.Q
+$Branch = 'pipeline'
 foreach ($d in 'queue', 'active', 'review', 'blocked', 'done') { New-Item -ItemType Directory -Force "$Q\$d" | Out-Null }
 New-Item -ItemType Directory -Force "$P\logs", "$P\shots" | Out-Null
-$RunLog = "$P\logs\runner.log"
+$RunLog = "$P\logs\runner$($L.Tag).log"
 $F = '```'   # markdown fence; spelled once because backticks are PowerShell's escape char
 
 function Log([string] $m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $m" | Add-Content $RunLog -Encoding utf8 }
@@ -38,7 +43,7 @@ function Write-Status([string] $note = '') {
             $lines += "- $($i.BaseName)$why"
         }
     }
-    $lines | Set-Content "$P\STATUS.md" -Encoding utf8
+    $lines | Set-Content "$P\STATUS$($L.Tag).md" -Encoding utf8
 }
 
 function Move-Task([IO.FileInfo] $f, [string] $to, [string] $append = '') {
@@ -51,7 +56,7 @@ function Move-Task([IO.FileInfo] $f, [string] $to, [string] $append = '') {
 
 function Invoke-Builder([string] $id, [string] $message, [string] $logFile) {
     # PS 5.1 Start-Process joins arguments without quoting, so quote by hand.
-    $argLine = "run --agent builder --model $Model --auto --dir `"$Wt`" --title `"$id`" `"$message`""
+    $argLine = "run --agent $($L.Agent) --model $Model --auto --dir `"$Wt`" --title `"$id`" `"$message`""
     $proc = Start-Process -FilePath $OpenCode -ArgumentList $argLine -WorkingDirectory $Wt -NoNewWindow -PassThru `
         -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
     if (-not $proc.WaitForExit($TaskTimeoutMin * 60000)) {
@@ -59,11 +64,13 @@ function Invoke-Builder([string] $id, [string] $message, [string] $logFile) {
         Log "$id builder timed out after $TaskTimeoutMin min; killed"
         return 'timeout'
     }
-    $out = (Get-Content $logFile, "$logFile.err" -Raw -ErrorAction SilentlyContinue) -join "`n"
     # Quota/auth/provider errors are not the task's fault: back off instead of burning attempts.
-    if ($out -match '(?i)rate.?limit|quota|insufficient.?(balance|credit)|unauthori[sz]ed|\b401\b|\b429\b|ProviderModelNotFound|ECONNREFUSED|ENOTFOUND') {
-        if ((Get-Item $logFile -ErrorAction SilentlyContinue).Length -lt 4000) { return 'infra' }
-    }
+    # Only when the builder delivered no report: task text itself may mention 401/429 (T-005 did,
+    # and an earlier version of this check threw away finished work).
+    $stdout = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
+    if ($stdout -match '## Report') { return 'ok' }
+    $errText = Get-Content "$logFile.err" -Raw -ErrorAction SilentlyContinue
+    if ($errText -match '(?i)rate.?limit|quota|insufficient.?(balance|credit)|ProviderModelNotFound|ECONNREFUSED|ENOTFOUND|AI_APICallError') { return 'infra' }
     return 'ok'
 }
 
@@ -73,7 +80,7 @@ if (Test-Path "$P\.cooldown") {
     if ((Get-Date) -lt [datetime](Get-Content "$P\.cooldown")) { Write-Status; exit 0 }
     Remove-Item "$P\.cooldown"
 }
-$Lock = "$P\.runner.lock"
+$Lock = "$P\.runner$($L.Tag).lock"
 if (Test-Path $Lock) {
     $old = Get-Content $Lock -Raw
     if ($old -and (Get-Process -Id ([int]$old) -ErrorAction SilentlyContinue | Where-Object ProcessName -match 'powershell')) { exit 0 }
@@ -145,7 +152,7 @@ try {
             if (((G rev-parse HEAD) | Select-Object -Last 1) -eq $base) { $verifyOut = 'builder made no changes'; continue }
 
             Remove-Item $shots -Recurse -Force -ErrorAction SilentlyContinue
-            $verifyOut = & powershell -NoProfile -ExecutionPolicy Bypass -File "$P\verify.ps1" -Worktree $Wt -BaseRef $base -ShotDir $shots 2>&1 | Out-String -Width 300
+            $verifyOut = & powershell -NoProfile -ExecutionPolicy Bypass -File $L.Verify -Worktree $Wt -BaseRef $base -ShotDir $shots 2>&1 | Out-String -Width 300
             $verifyOut | Set-Content "$P\logs\$id.verify$attempt.txt" -Encoding utf8
             if ($LASTEXITCODE -eq 0) { $result = 'pass'; break }
             $verifyOut | Set-Content "$Wt\.verify.txt" -Encoding utf8

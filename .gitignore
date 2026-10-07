@@ -16,3 +16,11 @@ pipeline/.cooldown
 .verify.txt
 .shots/
 .serena/
+
+# Character art never enters git (alpha art is private; shipped via the build)
+client/art/
+shared/art/inbox/
+shared/art/approved/
+pipeline/tasks-art/
+pipeline/STATUS-art.md
+pipeline/.runner-art.lock
