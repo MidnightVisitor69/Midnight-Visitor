@@ -1,6 +1,8 @@
 // Tests for tools/board/board.mjs. The fixture pipeline tree is built in a temp dir at runtime,
-// and every subprocess probe (opencode --version, freebuff --version, git, Task Scheduler) is
-// stubbed, so the suite never runs a command and never touches the real pipeline.
+// and every subprocess probe the board needs for real data (opencode --version, freebuff
+// --version, git, Task Scheduler) is stubbed, so the suite never reads the real pipeline and never
+// runs one of its commands. The single exception is "a probe that fails returns null", which
+// shells out to a command that does not exist on purpose.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -12,6 +14,7 @@ import { buildModel, main, parseArgs } from "./board.mjs";
 import { esc } from "./render.mjs";
 import {
   blockedReasonOf,
+  makeExec,
   newestSweep,
   parseRunnerLog,
   parseScheduledTasks,
@@ -511,8 +514,42 @@ test("the page carries the palette, the worker cards, the kanban and the tables"
   // The stale warning exists but stays hidden until the inline script finds the page too old.
   assert.ok(html.includes('<p id="stale">'));
   assert.ok(html.includes("if (ageMin > 3) {"), "the page warns after 3 minutes");
-  assert.ok(html.includes('id="stale"') && html.includes("display: none"), "hidden by default");
   assert.ok(html.includes("document.getElementById(\"stale\").style.display = \"block\""));
+});
+
+// Reads the display value a selector gets from the page's own stylesheet. The CSS is generated
+// and reformatted freely, so the guard is the rule itself rather than one hand-written substring:
+// a page that shows the warning by default must fail even if the CSS is minified or spaced.
+function displayOf(html, selector) {
+  const style = /<style>([\s\S]*?)<\/style>/.exec(html);
+  assert.notEqual(style, null, "the page needs a stylesheet");
+  for (const rule of style[1].split("}")) {
+    const brace = rule.indexOf("{");
+    if (brace < 0) continue;
+    const selectors = rule
+      .slice(0, brace)
+      .split(",")
+      .map((one) => one.trim());
+    if (!selectors.includes(selector)) continue;
+    const declared = /display\s*:\s*([^;}]+)/.exec(rule.slice(brace + 1));
+    if (declared !== null) return declared[1].trim();
+  }
+  return null;
+}
+
+test("the stale warning is hidden by default, so a fresh board never scolds the runner", () => {
+  const html = htmlOf(makeFixture());
+  assert.equal(displayOf(html, "#stale"), "none", "#stale must start hidden");
+  // An inline style would outrank the stylesheet, so the markup must not carry one.
+  assert.equal(
+    /<p id="stale"[^>]*style\s*=/.test(html),
+    false,
+    "the stale paragraph must not be shown by an inline style",
+  );
+  // And nothing but the script may reveal it, in exactly one place.
+  const [script] = html.match(/<script>[\s\S]*?<\/script>/g) ?? [];
+  assert.notEqual(script, undefined, "the age check script is missing from the page");
+  assert.equal((script.match(/style\.display\s*=/g) ?? []).length, 1, "one script, one reveal");
 });
 
 test("the page warns when it is older than 3 minutes", () => {
@@ -621,4 +658,16 @@ test("esc covers every character that can break out of an attribute or tag", () 
   assert.equal(esc(`<a href="x" title='y'>&</a>`), "&lt;a href=&quot;x&quot; title=&#39;y&#39;&gt;&amp;&lt;/a&gt;");
   assert.equal(esc(null), "");
   assert.equal(esc(42), "42");
+});
+
+test("the real probe runner hands back stdout, and null when a probe fails", () => {
+  const exec = makeExec();
+  // Every probe on the page goes through this: if stdout stopped being captured the whole board
+  // would quietly turn into n/a instead of failing.
+  const echoed = exec("echo board-probe-ok");
+  assert.equal(typeof echoed, "string");
+  assert.ok(echoed.includes("board-probe-ok"), `probe stdout was: ${String(echoed)}`);
+  // A missing tool (no git on the box, a freebuff that is not installed) must read as "n/a",
+  // never as a crash: the board matters most when something is already broken.
+  assert.equal(exec("this-probe-does-not-exist-anywhere"), null);
 });
