@@ -18,6 +18,7 @@ $Q = "$P\tasks"
 foreach ($d in 'queue', 'active', 'review', 'blocked', 'done') { New-Item -ItemType Directory -Force "$Q\$d" | Out-Null }
 New-Item -ItemType Directory -Force "$P\logs", "$P\shots" | Out-Null
 $RunLog = "$P\logs\runner.log"
+$F = '```'   # markdown fence; spelled once because backticks are PowerShell's escape char
 
 function Log([string] $m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $m" | Add-Content $RunLog -Encoding utf8 }
 function G { & git -C $Wt @args 2>&1 | ForEach-Object { "$_" } }
@@ -168,13 +169,24 @@ try {
             break
         }
         if ($result -eq 'pass') {
-            Move-Task $task 'review' "---`n# Pipeline result: VERIFIED $(Get-Date -Format 'yyyy-MM-dd HH:mm')`nCommits (on branch $Branch, from $base):`n``````n$commits`n```````nScreenshots: pipeline/shots/$id`n`n$report`n`n<details><summary>verify output</summary>`n`n``````n$verifyOut`n```````n</details>" | Out-Null
+            $note = @(
+                '---', "# Pipeline result: VERIFIED $(Get-Date -Format 'yyyy-MM-dd HH:mm')",
+                "Commits (on branch $Branch, from $base):", $F, $commits, $F,
+                "Screenshots: pipeline/shots/$id", '', $report, '',
+                '<details><summary>verify output</summary>', '', $F, $verifyOut, $F, '</details>'
+            ) -join "`n"
+            Move-Task $task 'review' $note | Out-Null
             Log "$id VERIFIED -> review"
         } else {
             G tag -f "failed/$id" | Out-Null
             G reset -q --hard $base | Out-Null
             $first = ($verifyOut -split "`r?`n" | Where-Object { $_ -match '^- |no changes' } | Select-Object -First 1)
-            Move-Task $task 'blocked' "---`n# Pipeline result: FAILED $(Get-Date -Format 'yyyy-MM-dd HH:mm')`nWork kept on tag failed/$id, branch rolled back to $base.`n`n$report`n`n``````n$verifyOut`n```````nBlocked: $first" | Out-Null
+            $note = @(
+                '---', "# Pipeline result: FAILED $(Get-Date -Format 'yyyy-MM-dd HH:mm')",
+                "Work kept on tag failed/$id, branch rolled back to $base.", '', $report, '',
+                $F, $verifyOut, $F, "Blocked: $first"
+            ) -join "`n"
+            Move-Task $task 'blocked' $note | Out-Null
             Log "$id FAILED -> blocked ($first)"
         }
         Remove-Item "$Wt\.task.md", "$Wt\.verify.txt" -ErrorAction SilentlyContinue
