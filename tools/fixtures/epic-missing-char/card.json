@@ -1,0 +1,10 @@
+{
+  "card_id": "epic-missing-char",
+  "character_name": "Fixture Epic Missing Char",
+  "rarity": "epic",
+  "set": "test-set",
+  "tags": ["neon"],
+  "approved": true,
+  "imported": false,
+  "gen": { "model": "fixture-model", "seed": 8, "prompt_id": "epic-missing-char-v1" }
+}

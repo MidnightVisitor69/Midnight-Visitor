@@ -1,0 +1,10 @@
+{
+  "card_id": "base-too-small",
+  "character_name": "Fixture Small Base",
+  "rarity": "common",
+  "set": "test-set",
+  "tags": ["neon"],
+  "approved": true,
+  "imported": false,
+  "gen": { "model": "fixture-model", "seed": 10, "prompt_id": "base-too-small-v1" }
+}

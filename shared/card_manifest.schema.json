@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waifu-card-game.invalid/shared/card_manifest.schema.json",
+  "title": "Card manifest",
+  "description": "Handoff contract for one card folder dropped by the image pipeline into shared/art/inbox/<card_id>/. See AGENTS.md 'Handoff Contract'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "card_id",
+    "character_name",
+    "rarity",
+    "set",
+    "tags",
+    "approved",
+    "imported",
+    "gen"
+  ],
+  "properties": {
+    "card_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "character_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    },
+    "rarity": {
+      "enum": ["common", "rare", "epic", "legendary"]
+    },
+    "set": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "tags": {
+      "type": "array",
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+      }
+    },
+    "approved": {
+      "type": "boolean"
+    },
+    "imported": {
+      "type": "boolean"
+    },
+    "gen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "seed", "prompt_id"],
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "prompt_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
