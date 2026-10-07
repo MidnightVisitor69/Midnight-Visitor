@@ -1,0 +1,11 @@
+{
+  "card_id": "extra-prop",
+  "character_name": "Fixture Extra Property",
+  "rarity": "common",
+  "set": "test-set",
+  "tags": ["neon"],
+  "approved": true,
+  "imported": false,
+  "sneaky": true,
+  "gen": { "model": "fixture-model", "seed": 7, "prompt_id": "extra-prop-v1" }
+}

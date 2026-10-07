@@ -1,0 +1,10 @@
+{
+  "card_id": "unknown-rarity",
+  "character_name": "Fixture Unknown Rarity",
+  "rarity": "mythic",
+  "set": "test-set",
+  "tags": ["neon"],
+  "approved": true,
+  "imported": false,
+  "gen": { "model": "fixture-model", "seed": 6, "prompt_id": "unknown-rarity-v1" }
+}

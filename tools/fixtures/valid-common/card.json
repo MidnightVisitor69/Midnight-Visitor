@@ -1,0 +1,10 @@
+{
+  "card_id": "fixture-common",
+  "character_name": "Fixture Common",
+  "rarity": "common",
+  "set": "test-set",
+  "tags": ["neon", "lounge"],
+  "approved": true,
+  "imported": false,
+  "gen": { "model": "fixture-model", "seed": 1, "prompt_id": "fixture-common-v1" }
+}

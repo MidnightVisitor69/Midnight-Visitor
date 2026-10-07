@@ -1,0 +1,10 @@
+{
+  "card_id": "fixture-epic",
+  "character_name": "Fixture Epic",
+  "rarity": "epic",
+  "set": "test-set",
+  "tags": ["neon", "glass"],
+  "approved": true,
+  "imported": false,
+  "gen": { "model": "fixture-model", "seed": 3, "prompt_id": "fixture-epic-v1" }
+}

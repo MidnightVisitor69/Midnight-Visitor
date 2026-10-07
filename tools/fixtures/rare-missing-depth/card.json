@@ -1,0 +1,10 @@
+{
+  "card_id": "rare-missing-depth",
+  "character_name": "Fixture Rare Missing Depth",
+  "rarity": "rare",
+  "set": "test-set",
+  "tags": ["neon"],
+  "approved": true,
+  "imported": false,
+  "gen": { "model": "fixture-model", "seed": 9, "prompt_id": "rare-missing-depth-v1" }
+}
