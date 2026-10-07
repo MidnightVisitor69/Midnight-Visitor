@@ -1,0 +1,17 @@
+client/.godot/
+client/*.keystore
+client/export_credentials.cfg
+*.apk
+*.aab
+
+# Pipeline coordination state (not product code)
+pipeline/tasks/
+pipeline/logs/
+pipeline/shots/
+pipeline/STATUS.md
+pipeline/STOP
+pipeline/.runner.lock
+pipeline/.cooldown
+.task.md
+.verify.txt
+.shots/
