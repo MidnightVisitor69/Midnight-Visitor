@@ -266,6 +266,37 @@
         "playwright*": "deny",
         "serena*": "deny"
       }
+    },
+    "monitor": {
+      "description": "Read-only night watch: reads pipeline status and logs, writes MONITOR_REPORT.md, may only create pipeline/STOP.",
+      "mode": "primary",
+      "model": "opencode/space-bunny-free",
+      "temperature": 0.1,
+      "steps": 60,
+      "prompt": "{file:./pipeline/MONITOR.md}",
+      "permission": {
+        "read": "allow", "list": "allow", "glob": "allow", "grep": "allow",
+        "edit": { "*": "deny", "pipeline/MONITOR_REPORT.md": "allow", "pipeline/STOP": "allow" },
+        "bash": {
+          "*": "deny",
+          "Get-ScheduledTaskInfo *": "allow",
+          "Get-Content *": "allow",
+          "Get-ChildItem *": "allow",
+          "Select-String *": "allow",
+          "git log*": "allow",
+          "git status*": "allow",
+          "*D:/*": "deny", "*D:\\*": "deny"
+        },
+        "external_directory": {
+          "*": "deny",
+          "E:/AI/waifu-pipeline-wt/*": "allow", "E:/AI/waifu-motion-wt/*": "allow",
+          "E:/AI/waifu-design-wt/*": "allow", "E:/AI/waifu-art-wt/*": "allow",
+          "D:/**": "deny", "D:\\**": "deny"
+        },
+        "task": "deny", "question": "deny", "webfetch": "deny", "websearch": "deny", "skill": "deny",
+        "todowrite": "allow", "lsp": "deny", "doom_loop": "deny",
+        "comfyui*": "deny", "playwright*": "deny", "serena*": "deny"
+      }
     }
   }
 }
