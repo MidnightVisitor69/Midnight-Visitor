@@ -1,10 +1,10 @@
-# Overnight runner. The "Waifu Pipeline Runner" scheduled task starts it every 15 minutes;
+﻿# Overnight runner. The "Waifu Pipeline Runner" scheduled task starts it every 15 minutes;
 # the lock makes overlapping starts exit at once. Safe to run by hand: .\pipeline\run.ps1
 #
 # Flow per task: queue/ -> active/ -> builder (opencode) -> verify.ps1 -> review/ or blocked/.
 # The builder works in a separate worktree on branch "pipeline", so the main checkout
 # stays free for planning. Nothing here pushes, and nothing merges into main.
-param([int] $MaxTasks = 8, [int] $TaskTimeoutMin = 60, [ValidateSet('card', 'art', 'motion', 'design', 'qa', 'fix')] [string] $Lane = 'card')
+param([int] $MaxTasks = 8, [int] $TaskTimeoutMin = 120, [ValidateSet('card', 'art', 'motion', 'design', 'qa', 'fix')] [string] $Lane = 'card')
 
 # 'Continue' because git and Godot write progress to stderr; exit codes are checked by hand.
 $ErrorActionPreference = 'Continue'
