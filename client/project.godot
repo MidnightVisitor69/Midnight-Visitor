@@ -20,5 +20,9 @@ window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/handheld/orientation=1
 
+[gui]
+theme/custom="res://theme/app_theme.tres"
+theme/custom_font="res://theme/fonts/Manrope-Variable.ttf"
+
 [rendering]
 renderer/rendering_method="mobile"
