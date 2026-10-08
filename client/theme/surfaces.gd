@@ -14,8 +14,9 @@ static func panel(depth := 1, radius_name := &"large") -> StyleBoxFlat:
 	lift.a = 0.06
 	sb.border_color = lift
 	sb.border_width_top = 1
-	# Soft shadow, drawn from the token palette (no hard-coded shadow color).
-	var shadow := Color(0.0, 0.0, 0.0, 0.35)
+	# Soft shadow, derived from the base token so it follows the palette.
+	var shadow: Color = Tokens.color(&"bg").darkened(0.5)
+	shadow.a = 0.35
 	sb.shadow_color = shadow
 	sb.shadow_size = Tokens.space(&"s8")
 	sb.shadow_offset = Vector2(0, 2)
