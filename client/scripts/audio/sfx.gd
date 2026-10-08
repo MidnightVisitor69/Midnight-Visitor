@@ -39,6 +39,10 @@ var enabled := true
 
 var _rng := RandomNumberGenerator.new()
 var _voices: Array[AudioStreamPlayer] = []
+## Voices that actually reached the audio device. Differs from play() calls
+## whenever the pool has no tree to play in (see play()), so a muted-but-
+## working board can never be confused with a dead one.
+var _started := 0
 ## When each pooled voice last started, by pool index. _take_voice drops the
 ## lowest. Unset entries read as 0, so a fresh voice always wins a free slot.
 var _seq_of := PackedInt32Array()
@@ -63,6 +67,11 @@ func _exit_tree() -> void:
 ## Play `name`, choosing a random `name_N` variant and +/-PITCH_JITTER pitch.
 ## Silently does nothing when sound is off or the stream is missing, so callers
 ## never have to guard.
+##
+## The voice is still picked and handed back when the pool is not in a scene
+## tree: AudioStreamPlayer.play() is an engine error outside one (the headless
+## test runner builds its tree root late), and callers use the return value to
+## reason about the cap. Nothing reaches an audio device in that case anyway.
 func play(name: String) -> AudioStreamPlayer:
 	if not enabled:
 		return null
@@ -72,7 +81,9 @@ func play(name: String) -> AudioStreamPlayer:
 	var player := _take_voice()
 	player.stream = stream
 	player.pitch_scale = pitch_jitter_for(_rng)
-	player.play()
+	if is_inside_tree():
+		player.play()
+		_started += 1
 	return player
 
 
@@ -102,6 +113,13 @@ func haptic(kind: String) -> int:
 func voice_pool_size() -> int:
 	_ensure_pool()
 	return _voices.size()
+
+
+## How many voices actually reached the audio device since launch. Stays 0
+## while the pool is outside a scene tree, which is how a test proves play()
+## never asks the engine to play from a detached node.
+func voices_started() -> int:
+	return _started
 
 
 # --- pure helpers (the tested surface) ---------------------------------------
