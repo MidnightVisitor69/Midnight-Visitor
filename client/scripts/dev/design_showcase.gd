@@ -13,6 +13,8 @@ const COMPONENT_SCENES := {
 }
 
 var _scroll: ScrollContainer
+var _sheet: Control
+var _toast: Control
 var _built := false
 
 
@@ -100,15 +102,31 @@ func _build() -> void:
 		var marker = COMPONENT_SCENES["rarity_marker"].instantiate()
 		marker.set_rarity(rarity)
 		page.add_child(marker)
-	var toast_c = COMPONENT_SCENES["toast"].instantiate()
-	toast_c.show_message("Daily reward claimed - 40 gems")
-	page.add_child(toast_c)
-	var sheet_c = COMPONENT_SCENES["sheet"].instantiate()
+
+	# Toast and sheet are overlays, not flow content: at the project canvas
+	# (1080x1920) the page FITS on one screen, so the three screenshot states
+	# differ by content (tokens / sheet open / toast shown), not by scroll.
+	_sheet = COMPONENT_SCENES["sheet"].instantiate()
+	_sheet.visible = false
+	_sheet.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_sheet.offset_left = Tokens.space(&"s24")
+	_sheet.offset_right = -Tokens.space(&"s24")
+	_sheet.offset_top = -420
+	_sheet.offset_bottom = -Tokens.space(&"s24")
 	var sheet_label := Label.new()
 	sheet_label.text = "Bottom sheet content"
 	sheet_label.theme_type_variation = "Body"
-	sheet_c.content().add_child(sheet_label)
-	page.add_child(sheet_c)
+	_sheet.content().add_child(sheet_label)
+	_sheet.closed.connect(func() -> void: _sheet.visible = false)
+	add_child(_sheet)
+
+	_toast = COMPONENT_SCENES["toast"].instantiate()
+	_toast.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_toast.offset_left = Tokens.space(&"s48")
+	_toast.offset_right = -Tokens.space(&"s48")
+	_toast.offset_top = -140
+	_toast.offset_bottom = -Tokens.space(&"s48")
+	add_child(_toast)
 
 	# Spacing steps, so the 8-px grid is inspectable on the phone.
 	_section(page, "Spacing 4..48")
@@ -143,15 +161,20 @@ func screenshot_count() -> int:
 
 func screenshot_setup(i: int) -> String:
 	_build()
-	if _scroll == null:
-		return "showcase_%d" % i
 	match i:
 		0:
-			_scroll.scroll_vertical = 0
-			return "showcase_top"
+			if _sheet != null:
+				_sheet.visible = false
+			if _toast != null:
+				_toast.visible = false
+			return "showcase_tokens"
 		1:
-			_scroll.scroll_vertical = int(_scroll.get_v_scroll_bar().max_value * 0.5)
-			return "showcase_middle"
+			if _sheet != null:
+				_sheet.visible = true
+			return "showcase_sheet"
 		_:
-			_scroll.scroll_vertical = int(_scroll.get_v_scroll_bar().max_value)
-			return "showcase_bottom"
+			if _sheet != null:
+				_sheet.visible = false
+			if _toast != null:
+				_toast.show_message("Daily reward claimed - 40 gems")
+			return "showcase_toast"
