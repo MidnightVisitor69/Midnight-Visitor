@@ -19,7 +19,7 @@ extends Control
 ## untouched pack rips itself after Motion.PACK_AUTO_TEAR_SECONDS.
 
 const CardViewScene := preload("res://scenes/card/card_view.tscn")
-const PlaceholderArtScript := preload("res://scripts/card/placeholder_art.gd")
+const CardArtScript := preload("res://scripts/card/card_art.gd")
 const PackTearShader := preload("res://shaders/fx/pack_tear.gdshader")
 const PackStripShader := preload("res://shaders/fx/pack_strip.gdshader")
 const RevealRaysShader := preload("res://shaders/fx/reveal_rays.gdshader")
@@ -102,9 +102,12 @@ var _card_center := Vector2.ZERO
 var _additive := CanvasItemMaterial.new()
 
 
-## Placeholder art is expensive (four 512x768 images); every card in a pack and
-## every cell in the summary shares one build.
-static var _art_cache: Dictionary = {}
+## Art goes through CardArt (T-008): the one loading path with the LRU cache
+## and the placeholder fallback. Until the pull payload carries cards.art_path
+## this resolves to the shared procedural placeholder - identical pixels to
+## what the pack used to build itself, but now swappable by data alone.
+func _placeholder_art() -> Dictionary:
+	return CardArtScript.placeholder_for("pack")
 
 
 func _ready() -> void:
