@@ -11,6 +11,7 @@ config/features=PackedStringArray("4.3", "Mobile")
 Config="*res://scripts/config.gd"
 Supabase="*res://scripts/supabase_client.gd"
 GameState="*res://scripts/app/game_state.gd"
+Sfx="*res://scripts/audio/sfx.gd"
 
 [display]
 window/size/viewport_width=1080
