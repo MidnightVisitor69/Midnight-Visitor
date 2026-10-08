@@ -111,7 +111,10 @@ A holo is a foil shader over the card, so variants cost zero extra art.
 - Settings shows lifetime money spent (`profiles.total_spent_cents`).
 
 ## UI quality bar (no AI slop, no clutter)
-- Design in Figma FIRST; code only what the dev has approved there. Never invent screens in code.
+- During the prototype phase, DESIGNER.md + `client/theme/tokens.tres` are the design
+  standard; code from those. Figma-first resumes when the dev populates the Figma file —
+  from then on, design in Figma FIRST and code only what the dev has approved there.
+  Never invent screens in code.
 - Use the design tokens file (`client/theme/tokens.tres`) for every color, font size, spacing,
   radius, and animation duration. Hardcoded values are bugs.
 - Two fonts max: one display font for titles/card names, one UI font for everything else.
