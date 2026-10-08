@@ -175,6 +175,36 @@ func _distinct(players: Array) -> int:
 	return ids.size()
 
 
+## Guard: the is_inside_tree() gate in play(). The runner calls tests from
+## _initialize(), before the tree root is in a tree, so every Sfx built here is
+## detached - and AudioStreamPlayer.play() is an engine error off-tree. Drop the
+## gate and this fails (and the whole test run floods the log with errors).
+func test_a_detached_pool_never_asks_the_engine_to_play() -> void:
+	var sfx: Node = SfxScript.new()
+	tree.root.add_child(sfx)
+	for i in 4:
+		sfx.play("tap")
+	# The voice is still chosen and armed - only the device call is skipped.
+	assert_eq(sfx.voices_started(), 0, "a detached pool must not call play()")
+	assert_eq(_live_voices(sfx), 3, "it still owns exactly three voices")
+	sfx.queue_free()
+
+
+## The other way round: suppressing the error must not hollow play() out. A
+## muted-looking call that returns nothing, or a voice with no stream, would
+## silence the whole kit on a phone while still passing the gate test.
+func test_a_detached_pool_still_arms_the_voice_it_picks() -> void:
+	var sfx: Node = SfxScript.new()
+	tree.root.add_child(sfx)
+	var p: AudioStreamPlayer = sfx.play("pack_tear")
+	assert_true(p != null, "play() still hands back a voice off-tree")
+	assert_true(p.stream != null, "that voice is loaded and ready")
+	assert_eq(p.bus, "SFX", "and routed to the quiet bus")
+	assert_true(absf(p.pitch_scale - 1.0) <= SPEC_JITTER + VOICE_TOLERANCE,
+		"with the same +/-3%% pitch it would use on a phone")
+	sfx.queue_free()
+
+
 # --- the toggle -------------------------------------------------------------
 
 ## Guard: the enabled check in play(). Remove it and sound keeps playing after
