@@ -39,6 +39,10 @@ var enabled := true
 
 var _rng := RandomNumberGenerator.new()
 var _voices: Array[AudioStreamPlayer] = []
+## When each pooled voice last started, by pool index. _take_voice drops the
+## lowest. Unset entries read as 0, so a fresh voice always wins a free slot.
+var _seq_of := PackedInt32Array()
+var _play_seq := 0
 ## Cached streams so a tap never touches the disk mid-frame.
 var _streams: Dictionary = {}
 var _settings := ConfigFile.new()
@@ -161,20 +165,27 @@ func _ensure_pool() -> void:
 		p.finished.connect(_on_voice_finished.bind(p))
 		add_child(p)
 		_voices.append(p)
+	_seq_of.resize(MAX_VOICES)
+	_seq_of.fill(0)
 
 
 func _take_voice() -> AudioStreamPlayer:
 	_ensure_pool()
-	# Free the oldest still playing; otherwise steal round-robin.
-	for p in _voices:
-		if not p.playing:
-			return p
-	var oldest := _voices[0]
-	for p in _voices:
-		if p.get_playback_position() >= oldest.get_playback_position():
-			oldest = p
-	oldest.stop()
-	return oldest
+	# Age is a monotonic counter indexed by pool slot, not `playing` or
+	# playback_position: the audio device has no clock at startup or under
+	# --headless, so either would pick an arbitrary victim. Recycling purely by
+	# age also matches "drop the oldest" - a voice that already finished is the
+	# oldest one anyway. Slot indices (not instance ids) keep the bookkeeping
+	# valid when a voice is freed.
+	_play_seq += 1
+	var oldest := 0
+	for i in range(1, _voices.size()):
+		if _seq_of[i] < _seq_of[oldest]:
+			oldest = i
+	_seq_of[oldest] = _play_seq
+	var player := _voices[oldest]
+	player.stop()
+	return player
 
 
 func _on_voice_finished(p: AudioStreamPlayer) -> void:
