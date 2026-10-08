@@ -20,6 +20,10 @@ const SfxScript := preload("res://scripts/audio/sfx.gd")
 const BoardScript := preload("res://scripts/dev/sound_board.gd")
 
 const VOICE_TOLERANCE := 0.0001
+## The brief's number, written out here rather than read from SfxScript: a test
+## that takes its own bound from the code under test passes no matter what the
+## code does.
+const SPEC_JITTER := 0.03
 
 
 func _rng() -> RandomNumberGenerator:
@@ -84,14 +88,14 @@ func test_sounds_offered_by_the_board_all_resolve_to_a_real_file() -> void:
 
 # --- pitch jitter ------------------------------------------------------------
 
-## Guard: the clamp on PITCH_JITTER. Set the constant to 0.10 and the samples
-## leave the +/-3% window and this fails.
+## Guard: the clamp on PITCH_JITTER, checked against the brief's own +/-3% and
+## not against the constant. Set PITCH_JITTER to 0.10 and this fails.
 func test_pitch_jitter_stays_within_three_percent() -> void:
 	var rng := _rng()
 	for i in 500:
 		var pitch := SfxScript.pitch_jitter_for(rng)
-		assert_true(pitch >= 1.0 - SfxScript.PITCH_JITTER - VOICE_TOLERANCE
-				and pitch <= 1.0 + SfxScript.PITCH_JITTER + VOICE_TOLERANCE,
+		assert_true(pitch >= 1.0 - SPEC_JITTER - VOICE_TOLERANCE
+				and pitch <= 1.0 + SPEC_JITTER + VOICE_TOLERANCE,
 			"pitch %f outside the +/-3%% window" % pitch)
 
 
@@ -110,9 +114,11 @@ func test_pitch_jitter_actually_varies_around_unity() -> void:
 
 # --- voice cap --------------------------------------------------------------
 
-## Guard: MAX_VOICES. Raise it to 6 and this fails.
+## Guard: MAX_VOICES, pinned to the brief's three rather than read back from
+## the script. Raise the constant to 6 and this fails.
 func test_voice_pool_is_capped_at_three() -> void:
 	assert_eq(SfxScript.MAX_VOICES, 3, "never more than three overlapping sounds")
+	assert_eq(SfxScript.PITCH_JITTER, SPEC_JITTER, "jitter stays at the brief's 3%")
 
 
 func test_pool_holds_exactly_three_players() -> void:
@@ -142,6 +148,31 @@ func test_a_full_pool_still_hands_out_a_playing_voice() -> void:
 		assert_true(p != null, "play(%d) returned no voice" % i)
 		assert_eq(p.bus, "SFX", "everything routes through the SFX bus")
 	sfx.queue_free()
+
+
+## Guard: the oldest-first eviction in _take_voice. Returning the first free or
+## an arbitrary voice instead lets the first sound be cut off by later ones;
+## recording which player was handed out per call proves the oldest is the one
+## recycled once all three are busy.
+func test_the_oldest_voice_is_the_one_dropped() -> void:
+	var sfx: Node = SfxScript.new()
+	tree.root.add_child(sfx)
+	var handed := []
+	for i in 3:
+		handed.append(sfx.play("tap"))
+	# Every call reused one of the same three players: pool is 3, not growing.
+	assert_eq(_distinct(handed), 3, "three sounds fill exactly three voices")
+	# The fourth has nowhere new to go, so it must take the very first one.
+	assert_eq(sfx.play("tap"), handed[0], "the oldest voice is recycled first")
+	assert_eq(sfx.play("tap"), handed[1], "then the next oldest")
+	sfx.queue_free()
+
+
+func _distinct(players: Array) -> int:
+	var ids := {}
+	for p in players:
+		ids[(p as AudioStreamPlayer).get_instance_id()] = true
+	return ids.size()
 
 
 # --- the toggle -------------------------------------------------------------
