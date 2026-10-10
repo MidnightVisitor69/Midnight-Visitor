@@ -36,3 +36,12 @@ pipeline/.monitor.lock
 pipeline/freebuff/
 pipeline/board.html
 pipeline/AUTO_MERGE
+
+# Scratch / debug artifacts from ad-hoc agent sessions (never product code)
+debug_output.txt
+final_test.txt
+fresh_test.txt
+tmp_*.txt
+worktree_test.txt
+test_import.mjs
+.kilo/

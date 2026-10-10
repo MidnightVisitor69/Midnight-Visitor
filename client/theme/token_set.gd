@@ -30,6 +30,18 @@ extends Resource
 	&"rarity_rare": Color(0.216, 0.902, 1.0),     # cyan
 	&"rarity_epic": Color(1.0, 0.239, 0.545),     # magenta
 	&"rarity_legendary": Color(1.0, 0.761, 0.294),  # amber
+
+	# Card materials (the collectible object, not the UI). Frame metals follow
+	# the rarity ladder: gunmetal -> silver -> violet enamel -> gold. The ink
+	# tones are the plate under the art, so transparent art never shows the page.
+	&"card_ink": Color(0.055, 0.071, 0.145),      # #0E1225 ink-blue plate base
+	&"card_ink_deep": Color(0.031, 0.043, 0.098), # #080B19 darker plate / scrim floor
+	&"frame_common": Color(0.373, 0.416, 0.518),  # #5F6A84 gunmetal
+	&"frame_rare": Color(0.776, 0.816, 0.894),    # #C6D0E4 silver
+	&"frame_epic": Color(0.655, 0.545, 0.980),    # #A78BFA violet enamel
+	&"frame_legendary": Color(0.910, 0.722, 0.294), # #E8B84B warm gold
+	&"frame_hairline": Color(1.0, 1.0, 1.0, 0.22),  # 1px inner highlight
+	&"plate_scrim": Color(0.016, 0.024, 0.063),   # gradient floor under text
 }
 
 ## Type scale in px at the 1080x1920 design resolution, strictly increasing
@@ -52,6 +64,7 @@ extends Resource
 
 @export var radii: Dictionary = {
 	&"small": 8,
+	&"card": 14,
 	&"large": 16,
 	&"pill": 999,
 }

@@ -1,18 +1,31 @@
 extends Control
-## Card detail (T-008): the showpiece. One card, big, tiltable, nothing else -
-## name, rarity, set, variant, how many you own, when you got it, one way out
-## (close button top-left or swipe down). AGENTS.md: the pack opening and card
-## detail views are the showpiece; every other screen stays quiet.
+## Card detail (T-008, visual redesign): the showpiece. One card, big,
+## tiltable, and the one screen where the foil is allowed to show off
+## (foil_emphasis raises the foil above grid strength). Under it: a quiet
+## info panel that answers "what is this and what do I own" with real data
+## from the collection row - no invented stats.
 ##
 ## Opened by the Collection tab as a full-screen overlay. Also loadable as its
 ## own scene, which is how the screenshot harness captures it.
+##
+## Interaction: tap Close or swipe down to leave; drag anywhere on the screen
+## tilts the card (the drag feeds both the close gesture and CardView).
 
 const CardViewScene := preload("res://scenes/card/card_view.tscn")
+## Preloaded (not the global class_name) so it resolves in the headless runner,
+## whose global-class cache may not yet include CardCatalog.
+const CardCatalogScript := preload("res://scripts/card/card_catalog.gd")
 
 const MIN_TAP_DP := 48.0
 ## Swipe-down-to-close: mostly-vertical fling of at least this many pixels.
 const SWIPE_DOWN_PX := 140.0
-const BG_COLOR := Color(0.031, 0.047, 0.118, 0.97)
+## Card sizing as fractions of the viewport, so the showpiece survives narrow
+## and short screens without covering the info panel.
+const CARD_WIDTH_RATIO := 0.62
+const CARD_WIDTH_MAX := 720.0
+const CARD_HEIGHT_RATIO := 0.62
+## The detail view is where the foil reads strongest (grid runs at 1.0).
+const FOIL_EMPHASIS := 1.18
 
 signal closed
 
@@ -20,12 +33,16 @@ var _built := false
 var _screenshot_mode := false
 var _swipe_from := Vector2.ZERO
 var _swiping := false
+var _entrance: Tween
 
 var _card: CardView
+var _holder: Control
+var _panel: PanelContainer
 var _name_label: Label
-var _rarity_label: Label
-var _owned_label: Label
-var _obtained_label: Label
+var _rarity_marker: RarityMarker
+var _meta_label: Label
+var _owned_value: Label
+var _obtained_value: Label
 
 
 func _ready() -> void:
@@ -38,17 +55,30 @@ func setup(group: Dictionary) -> void:
 	_ensure_built()
 	visible = true
 	var rarity := str(group.get("rarity", "common"))
+	var set_id := str(group.get("set_id", ""))
+	var variant := str(group.get("variant", "none"))
 	_card.set_card(rarity, CardArt.textures_for(
-			str(group.get("card_id", "")), rarity, str(group.get("art_path", ""))))
-	_card.set_variant(str(group.get("variant", "none")))
+			str(group.get("card_id", "")), rarity, str(group.get("art_path", ""))), {
+		"name": str(group.get("name", group.get("card_id", ""))),
+		"set_id": set_id,
+	})
+	_card.set_variant(variant)
+	_card.set_foil_emphasis(FOIL_EMPHASIS)
+
 	_name_label.text = str(group.get("name", group.get("card_id", "")))
-	_rarity_label.text = "%s · %s%s" % [
-		str(group.get("rarity", "")).capitalize(),
-		str(group.get("set_id", "")),
-		_variant_suffix(str(group.get("variant", "none"))),
-	]
-	_owned_label.text = "Owned x %d" % maxi(int(group.get("copies", 1)), 1)
-	_obtained_label.text = _obtained_phrase(str(group.get("obtained_at", "")))
+	_rarity_marker.set_rarity(rarity)
+	var parts: Array[String] = []
+	if not set_id.is_empty():
+		parts.append(set_id.to_upper())
+	if variant != "none":
+		parts.append(variant.to_upper() + " FOIL")
+	_meta_label.text = " · ".join(parts)
+	_meta_label.visible = not parts.is_empty()
+	_owned_value.text = "x %d" % maxi(int(group.get("copies", 1)), 1)
+	_obtained_value.text = _obtained_phrase(str(group.get("obtained_at", "")))
+
+	_layout()
+	_play_entrance()
 
 
 func close() -> void:
@@ -102,9 +132,6 @@ func _finish_swipe(pos: Vector2) -> void:
 # --- helpers --------------------------------------------------------------------
 
 ## "Obtained Oct 3" from an ISO timestamp; falls back to the raw string.
-static func _variant_suffix(variant: String) -> String:
-	# "none" is a real enum value, not an absence - it just has no display name.
-	return "" if variant == "none" else " · %s" % variant.capitalize()
 static func _obtained_phrase(iso: String) -> String:
 	if iso.is_empty():
 		return ""
@@ -117,8 +144,47 @@ static func _obtained_phrase(iso: String) -> String:
 	var m := int(parsed.get("month", 1))
 	var day := int(parsed.get("day", 1))
 	if m >= 1 and m <= 12:
-		return "Obtained %s %d" % [months[m - 1], day]
-	return "Obtained %s" % iso
+		return "%s %d" % [months[m - 1], day]
+	return iso
+
+
+# --- layout + motion -------------------------------------------------------------
+
+## Card + panel width follow the viewport, so the pair always fits and stays
+## aligned to one column.
+func _layout() -> void:
+	var ext := size
+	if ext.x <= 1.0 or ext.y <= 1.0:
+		ext = Vector2(
+				ProjectSettings.get_setting("display/window/size/viewport_width", 1080),
+				ProjectSettings.get_setting("display/window/size/viewport_height", 1920))
+	var cw := clampf(ext.x * CARD_WIDTH_RATIO, 240.0, CARD_WIDTH_MAX)
+	var ch := cw * 1.5
+	var max_h := ext.y * CARD_HEIGHT_RATIO
+	if ch > max_h:
+		ch = max_h
+		cw = ch / 1.5
+	_holder.custom_minimum_size = Vector2(cw, ch)
+	_holder.pivot_offset = Vector2(cw, ch) * 0.5
+	_panel.custom_minimum_size = Vector2(cw, 0.0)
+
+
+## Entrance: the card settles in. Motion has a job (transition), nothing idles.
+func _play_entrance() -> void:
+	if _screenshot_mode or Motion.reduced or not is_inside_tree():
+		return
+	if _entrance != null and _entrance.is_valid():
+		_entrance.kill()
+	_card.pivot_offset = _holder.size * 0.5
+	_card.scale = Vector2.ONE * 0.97
+	_card.modulate.a = 0.0
+	_entrance = create_tween()
+	_entrance.set_parallel(true)
+	var secs := Tokens.duration(&"standard") / 1000.0
+	_entrance.tween_property(_card, "modulate:a", 1.0, secs) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_entrance.tween_property(_card, "scale", Vector2.ONE, secs) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 
 # --- construction ----------------------------------------------------------------
@@ -130,11 +196,12 @@ func _ensure_built() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	visible = false
+	resized.connect(_layout)
 
 	# Scrim behind everything: text never sits on busy art without one.
 	var bg := ColorRect.new()
 	bg.name = "Scrim"
-	bg.color = BG_COLOR
+	bg.color = Color(Tokens.color(&"bg"), 0.97)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
@@ -142,15 +209,16 @@ func _ensure_built() -> void:
 	var close_btn := Button.new()
 	close_btn.name = "CloseButton"
 	close_btn.text = "Close"
+	close_btn.theme_type_variation = "ButtonGhost"
 	close_btn.focus_mode = Control.FOCUS_NONE
 	close_btn.custom_minimum_size = Vector2(MIN_TAP_DP * 2.0, MIN_TAP_DP)
 	close_btn.pressed.connect(close)
-	close_btn.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	close_btn.offset_left = 12.0
-	close_btn.offset_top = 12.0
-	close_btn.offset_right = 12.0 + MIN_TAP_DP * 2.0
-	close_btn.offset_bottom = 12.0 + MIN_TAP_DP
 	add_child(close_btn)
+	close_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	close_btn.offset_left = Tokens.space(&"s12")
+	close_btn.offset_top = Tokens.space(&"s12")
+	close_btn.offset_right = Tokens.space(&"s12") + MIN_TAP_DP * 2.0
+	close_btn.offset_bottom = Tokens.space(&"s12") + MIN_TAP_DP
 
 	var centre := CenterContainer.new()
 	centre.name = "Centre"
@@ -161,44 +229,105 @@ func _ensure_built() -> void:
 	var col := VBoxContainer.new()
 	col.name = "Column"
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 14)
+	col.add_theme_constant_override("separation", Tokens.space(&"s16"))
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	centre.add_child(col)
 
-	var card_holder := Control.new()
-	card_holder.name = "CardHolder"
-	card_holder.custom_minimum_size = Vector2(300.0, 450.0)
-	card_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_child(card_holder)
+	_holder = Control.new()
+	_holder.name = "CardHolder"
+	_holder.custom_minimum_size = Vector2(300.0, 450.0)
+	_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(_holder)
 
 	# Real tilt: device tilt on the phone, drag on the card in tests. No
 	# override, because interacting with the card is the point of this screen.
 	_card = CardViewScene.instantiate() as CardView
 	_card.name = "Card"
-	_card.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card_holder.add_child(_card)
+	_holder.add_child(_card)
+	_card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	_panel = PanelContainer.new()
+	_panel.name = "Info"
+	col.add_child(_panel)
+
+	var info := VBoxContainer.new()
+	info.name = "InfoColumn"
+	info.add_theme_constant_override("separation", Tokens.space(&"s8"))
+	info.alignment = BoxContainer.ALIGNMENT_CENTER
+	_panel.add_child(info)
 
 	_name_label = Label.new()
 	_name_label.name = "Name"
+	_name_label.theme_type_variation = "Display"
 	_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(_name_label)
+	_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info.add_child(_name_label)
 
-	_rarity_label = Label.new()
-	_rarity_label.name = "Rarity"
-	_rarity_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(_rarity_label)
+	_rarity_marker = RarityMarker.new()
+	_rarity_marker.name = "Rarity"
+	var rarity_row := CenterContainer.new()
+	rarity_row.name = "RarityRow"
+	rarity_row.add_child(_rarity_marker)
+	info.add_child(rarity_row)
 
-	_owned_label = Label.new()
-	_owned_label.name = "Owned"
-	_owned_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(_owned_label)
+	_meta_label = Label.new()
+	_meta_label.name = "Meta"
+	_meta_label.theme_type_variation = "Caption"
+	_meta_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	info.add_child(_meta_label)
 
-	_obtained_label = Label.new()
-	_obtained_label.name = "Obtained"
-	_obtained_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_obtained_label.visible = false
-	col.add_child(_obtained_label)
+	var divider := Control.new()
+	divider.name = "Divider"
+	divider.custom_minimum_size = Vector2(0.0, Tokens.space(&"s4"))
+	divider.draw.connect(func() -> void:
+		var c := Tokens.color(&"outline")
+		divider.draw_line(Vector2(0.0, divider.size.y * 0.5),
+				Vector2(divider.size.x, divider.size.y * 0.5), c, 1.0))
+	info.add_child(divider)
+
+	var stats := HBoxContainer.new()
+	stats.name = "Stats"
+	stats.alignment = BoxContainer.ALIGNMENT_CENTER
+	stats.add_theme_constant_override("separation", Tokens.space(&"s48"))
+	info.add_child(stats)
+
+	var owned := _stat_column("Owned")
+	_owned_value = owned["value"]
+	stats.add_child(owned["column"])
+
+	var obtained := _stat_column("Obtained")
+	_obtained_value = obtained["value"]
+	stats.add_child(obtained["column"])
+
+	var hint := Label.new()
+	hint.name = "TiltHint"
+	hint.theme_type_variation = "Caption"
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.text = "Drag the card to catch the light"
+	info.add_child(hint)
+
+
+## One "label over value" stat block, centred.
+func _stat_column(label_text: String) -> Dictionary:
+	var column := VBoxContainer.new()
+	column.name = label_text + "Column"
+	column.add_theme_constant_override("separation", Tokens.space(&"s4"))
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+
+	var label := Label.new()
+	label.name = "Label"
+	label.theme_type_variation = "Caption"
+	label.text = label_text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(label)
+
+	var value := Label.new()
+	value.name = "Value"
+	value.theme_type_variation = "Body"
+	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(value)
+	return {"column": column, "value": value}
 
 
 # --- screenshots ----------------------------------------------------------------
@@ -206,26 +335,28 @@ func _ensure_built() -> void:
 ## galaxy tilted - the two ends of the holo showpiece.
 
 static func demo_group() -> Dictionary:
+	var c := CardCatalogScript.by_id("kat-daily-1735-day")   # rare "KaT · Golden Hour"
 	return {
-		"card_id": "seraph-gold",
+		"card_id": str(c["card_id"]),
 		"variant": "silver",
-		"name": "Seraph Gold",
-		"rarity": "rare",
-		"set_id": "launch-01",
-		"art_path": "placeholder/rare.png",
+		"name": str(c["name"]),
+		"rarity": str(c["rarity"]),
+		"set_id": str(c["set_id"]),
+		"art_path": str(c["art_path"]),
 		"copies": 2,
 		"obtained_at": "2026-10-03T21:14:00",
 	}
 
 
 static func demo_legendary() -> Dictionary:
+	var c := CardCatalogScript.by_id("kat-daily-2344-sleep")   # legendary "KaT · Sweet Dreams"
 	return {
-		"card_id": "noir-ember",
+		"card_id": str(c["card_id"]),
 		"variant": "galaxy",
-		"name": "Noir Ember",
-		"rarity": "legendary",
-		"set_id": "noir",
-		"art_path": "placeholder/legendary.png",
+		"name": str(c["name"]),
+		"rarity": str(c["rarity"]),
+		"set_id": str(c["set_id"]),
+		"art_path": str(c["art_path"]),
 		"copies": 1,
 		"obtained_at": "2026-10-05T23:41:00",
 	}

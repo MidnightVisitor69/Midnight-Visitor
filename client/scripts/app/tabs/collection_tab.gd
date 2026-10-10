@@ -16,6 +16,9 @@ extends Control
 
 const CardViewScene := preload("res://scenes/card/card_view.tscn")
 const CardDetailScene := preload("res://scenes/app/card_detail.tscn")
+## Preloaded (not the global class_name) so it resolves in the headless runner,
+## whose global-class cache may not yet include CardCatalog.
+const CardCatalogScript := preload("res://scripts/card/card_catalog.gd")
 
 const MIN_TAP_DP := 48.0
 const GRID_COLUMNS := 3
@@ -128,23 +131,28 @@ func _ensure_built() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 
+	# Same margin rhythm as the Home tab so sibling screens share one edge.
+	var margin := MarginContainer.new()
+	margin.name = "Margin"
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	for side in ["left", "top", "right", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, Tokens.space(&"s16"))
+	add_child(margin)
+
 	var col := VBoxContainer.new()
 	col.name = "Column"
-	col.set_anchors_preset(Control.PRESET_FULL_RECT)
-	col.add_theme_constant_override("separation", 8)
-	add_child(col)
+	col.add_theme_constant_override("separation", Tokens.space(&"s12"))
+	margin.add_child(col)
 
 	_filter_row = HBoxContainer.new()
 	_filter_row.name = "Filters"
-	_filter_row.add_theme_constant_override("separation", 6)
+	_filter_row.add_theme_constant_override("separation", Tokens.space(&"s8"))
 	col.add_child(_filter_row)
 	for f in FILTERS:
-		var b := Button.new()
+		# The shared Chip: 48dp pill, weight change marks the active filter.
+		var b := Chip.new()
 		b.name = "Filter_" + f
 		b.text = f.capitalize()
-		b.toggle_mode = true
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 		b.button_pressed = f == "all"
 		b.pressed.connect(_select_filter.bind(f))
 		_filter_row.add_child(b)
@@ -160,6 +168,7 @@ func _ensure_built() -> void:
 
 	_counter = Label.new()
 	_counter.name = "Counter"
+	_counter.theme_type_variation = "Caption"
 	_counter.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_counter.visible = false
 	col.add_child(_counter)
@@ -180,6 +189,7 @@ func _ensure_built() -> void:
 
 	_empty = Label.new()
 	_empty.name = "Empty"
+	_empty.theme_type_variation = "Body"
 	_empty.text = "No cards here yet - pulls land on Home."
 	_empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_empty.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -335,13 +345,15 @@ func _rebuild() -> void:
 
 
 func _tile_size() -> Vector2:
-	# 2:3 portrait tiles in 3 columns that always fit the width (phone-first).
+	# 2:3 portrait tiles in 3 columns that fit the width between the screen
+	# margins (phone-first); the grid never overflows horizontally.
 	var ext := size
 	if ext.x <= 1.0:
 		ext = Vector2(
 				ProjectSettings.get_setting("display/window/size/viewport_width", 1080),
 				ProjectSettings.get_setting("display/window/size/viewport_height", 1920))
-	var w := (ext.x - (GRID_COLUMNS - 1) * TILE_SEPARATION - 24.0) / float(GRID_COLUMNS)
+	var gutters := 2.0 * float(Tokens.space(&"s16"))
+	var w := (ext.x - gutters - (GRID_COLUMNS - 1) * TILE_SEPARATION) / float(GRID_COLUMNS)
 	return Vector2(w, w * 1.5)
 
 
@@ -358,30 +370,49 @@ func _make_tile(group: Dictionary, tile_size: Vector2) -> Control:
 	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
 		tile.add_theme_stylebox_override(state, empty)
 
-	var view: Control = CardViewScene.instantiate()
+	var view := CardViewScene.instantiate() as CardView
 	view.name = "Card"
-	view.set_anchors_preset(Control.PRESET_FULL_RECT)
 	view.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	view.use_tilt_override = true
 	view.tilt_override = Vector2(0.25, -0.15)
 	tile.add_child(view)
+	# add_child FIRST: a scene-instantiated CardView still carries the .tscn's
+	# default offsets, and a preset applied before it has a parent keeps them
+	# (that was the grid-overlap bug).
+	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	view.set_card(str(group["rarity"]), CardArt.textures_for(
-			str(group["card_id"]), str(group["rarity"]), str(group["art_path"])))
+			str(group["card_id"]), str(group["rarity"]), str(group["art_path"])), {
+			"name": str(group.get("name", "")),
+			"set_id": str(group.get("set_id", "")),
+		})
 	view.set_variant(str(group["variant"]))
+	# Tap feedback: the card dips under the finger, nothing else moves.
+	tile.button_down.connect(_dip.bind(view, true))
+	tile.button_up.connect(_dip.bind(view, false))
 
 	if int(group["copies"]) > 1:
-		var badge := Label.new()
+		var badge := Badge.new()
 		badge.name = "Count"
 		badge.text = "x%d" % int(group["copies"])
 		badge.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		badge.offset_left = -56.0
-		badge.offset_top = 4.0
-		badge.offset_right = -6.0
-		badge.offset_bottom = 30.0
+		badge.offset_left = -76.0
+		badge.offset_top = Tokens.space(&"s8")
+		badge.offset_right = -Tokens.space(&"s8")
+		badge.offset_bottom = Tokens.space(&"s8") + 30.0
 		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		tile.add_child(badge)
 	return tile
+
+
+## Pressed-state dip on the card itself (Motion.TAP_PRESS_SCALE).
+func _dip(view: Control, down: bool) -> void:
+	if not is_instance_valid(view):
+		return
+	var target := Motion.TAP_PRESS_SCALE if down else 1.0
+	var tw := view.create_tween()
+	tw.tween_property(view, "scale", Vector2.ONE * target,
+			Motion.TAP_MS / 1000.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 
 # --- detail ---------------------------------------------------------------------
@@ -403,40 +434,32 @@ func _open_detail(group: Dictionary) -> void:
 
 static func demo_rows() -> Array:
 	var rows: Array = []
-	var cards := [
-		["aurora-late", "Aurora, Late", "common", "launch-01", 3],
-		["neon-latte", "Neon Latte", "common", "launch-01", 1],
-		["velvet-static", "Velvet Static", "common", "launch-01", 2],
-		["harbor-lantern", "Harbor Lantern", "common", "con-weekend", 1],
-		["sable-rain", "Sable Rain", "rare", "launch-01", 2],
-		["mika-signal", "Mika Signal", "rare", "city-pop-93", 1],
-		["opal-drive", "Opal Drive", "rare", "launch-01", 1],
-		["yuki-ghost", "Yuki Ghost", "epic", "launch-01", 1],
-		["rin-vending", "Rin, Vending Machine", "epic", "city-pop-93", 1],
-		["seraph-gold", "Seraph Gold", "legendary", "launch-01", 1],
-		["noir-ember", "Noir Ember", "legendary", "noir", 1],
-		["ink-moth", "Ink Moth", "rare", "ink-ember", 1],
-	]
-	var variants := ["none", "none", "silver", "none", "gold"]
+	var cards := CardCatalogScript.all()
 	var i := 0
 	for c in cards:
-		for copy in int(c[4]):
+		var card_id := str(c["card_id"])
+		var rarity := str(c["rarity"])
+		# Deterministic copy counts so the xN badges and grouping have real work
+		# to do; driven purely by catalog order, never randomness (screenshots
+		# must be identical every capture).
+		var copies := 1 + (i % 3)
+		for copy in copies:
 			var variant := "none"
-			# Spread a second variant over the first two cards so grouping has
-			# something real to do in the demo.
-			if copy == int(c[4]) - 1 and i % 5 == 3:
-				variant = variants[i % variants.size()]
+			# The last copy of every fourth card is a holo variant so the grid
+			# shows both plain and foil copies of the same real card.
+			if copy == copies - 1 and i % 4 == 3:
+				variant = "gold" if rarity in ["epic", "legendary"] else "silver"
 			rows.append({
-				"id": "demo-%d" % i,
-				"card_id": c[0],
+				"id": "demo-%d-%d" % [i, copy],
+				"card_id": card_id,
 				"variant": variant,
-				"obtained_at": "2026-10-0%dT12:00:00" % ((i % 7) + 1),
-				"name": c[1],
-				"rarity": c[2],
-				"set_id": c[3],
-				"art_path": "placeholder/%s.png" % c[2],
+				"obtained_at": "2026-10-%02dT12:00:00" % ((i % 27) + 1),
+				"name": str(c["name"]),
+				"rarity": rarity,
+				"set_id": str(c["set_id"]),
+				"art_path": str(c["art_path"]),
 			})
-			i += 1
+		i += 1
 	return rows
 
 
@@ -446,7 +469,7 @@ func screenshot_count() -> int:
 
 func screenshot_setup(i: int) -> String:
 	_ensure_built()
-	set_preview_data(demo_rows(), {"launch-01": 8, "con-weekend": 16})
+	set_preview_data(demo_rows(), {"kat-closet": 32, "kat-daily": 30})
 	match i:
 		0:
 			_filter = "all"

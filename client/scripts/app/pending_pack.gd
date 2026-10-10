@@ -47,7 +47,7 @@ static func begin(key: String, banner_id: String, count: int) -> bool:
 ## its key - the server has that key's result stored - so a retry is free. Any
 ## other pack gets a fresh key, because it is genuinely a new purchase.
 static func key_for(banner_id: String, count: int) -> String:
-	var p := load()
+	var p := PendingPack.load()
 	if str(p.get("state", "")) == STATE_REQUESTED \
 			and str(p.get("banner", "")) == banner_id \
 			and int(p.get("count", -1)) == count:
@@ -69,7 +69,7 @@ static func blocks(pending: Dictionary, banner_id: String, count: int) -> bool:
 ## The server answered: keep the cards so a crash during the reveal cannot lose
 ## them, and remember how far the player got.
 static func store_result(key: String, result: Dictionary) -> bool:
-	var p := load()
+	var p := PendingPack.load()
 	# A stale key here means the file was replaced by a newer pull; do not
 	# resurrect the old one.
 	if not p.is_empty() and str(p.get("key", "")) != key:
@@ -84,7 +84,7 @@ static func store_result(key: String, result: Dictionary) -> bool:
 ## The rip finished. Recorded so a resumed reveal does not tear a pack that is
 ## already open.
 static func mark_torn() -> void:
-	var p := load()
+	var p := PendingPack.load()
 	if p.is_empty():
 		return
 	p["torn"] = true
@@ -94,7 +94,7 @@ static func mark_torn() -> void:
 ## Card `index` finished flipping. index is 0-based; anything below the current
 ## value is ignored so a late write cannot rewind the reveal.
 static func mark_revealed(index: int) -> void:
-	var p := load()
+	var p := PendingPack.load()
 	if p.is_empty():
 		return
 	p["revealed_index"] = maxi(int(p.get("revealed_index", -1)), index)
@@ -115,8 +115,7 @@ static func load() -> Dictionary:
 		return {}
 	var text := FileAccess.get_file_as_string(path)
 	var parsed: Variant = JSON.parse_string(text)
-	if not (parsed is Dictionary) or str((parsed as Dictionary).get("state", "")) \
-			notin [STATE_REQUESTED, STATE_UNREVEALED]:
+	if not (parsed is Dictionary) or str((parsed as Dictionary).get("state", "")) not in [STATE_REQUESTED, STATE_UNREVEALED]:
 		push_warning("PendingPack: unreadable journal at %s, discarding." % path)
 		finish()
 		return {}
@@ -125,11 +124,11 @@ static func load() -> Dictionary:
 
 ## Whether a pack is mid-flight, i.e. a key exists but no cards are in hand.
 static func is_requested() -> bool:
-	return str(load().get("state", "")) == STATE_REQUESTED
+	return str(PendingPack.load().get("state", "")) == STATE_REQUESTED
 
 
 static func is_unrevealed() -> bool:
-	return str(load().get("state", "")) == STATE_UNREVEALED
+	return str(PendingPack.load().get("state", "")) == STATE_UNREVEALED
 
 
 ## A fresh 128-bit key in the same shape SupabaseClient hands out. Generated
