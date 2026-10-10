@@ -250,9 +250,32 @@ func _build_tab_bar() -> void:
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_tab_button_style(b)
 		b.pressed.connect(_select_tab.bind(id))
 		row.add_child(b)
 		_tab_buttons.append(b)
+
+
+## Quiet tabs: only the ACTIVE tab gets the thin neon bar (D-001's TabBar
+## intent, applied to these buttons). Filled buttons on every tab made the whole
+## bar read as active - neon is a precious resource (DESIGNER.md).
+func _tab_button_style(b: Button) -> void:
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(Tokens.color(&"bg"), 0.0)
+	normal.content_margin_top = Tokens.space(&"s12")
+	normal.content_margin_bottom = Tokens.space(&"s12")
+	var selected: StyleBoxFlat = normal.duplicate()
+	selected.bg_color = Tokens.color(&"surface_1")
+	selected.border_color = Tokens.color(&"accent")
+	selected.border_width_bottom = 3
+	b.add_theme_stylebox_override("normal", normal)
+	b.add_theme_stylebox_override("hover", normal)
+	b.add_theme_stylebox_override("pressed", selected)
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	b.add_theme_color_override("font_color", Tokens.color(&"text_secondary"))
+	b.add_theme_color_override("font_hover_color", Tokens.color(&"text_primary"))
+	b.add_theme_color_override("font_pressed_color", Tokens.color(&"text_primary"))
+	b.add_theme_font_size_override("font_size", Tokens.font_size(&"label"))
 
 
 func _build_overlay() -> void:
@@ -288,7 +311,10 @@ func _select_tab(id: String) -> void:
 	for tid in _tab_pages:
 		(_tab_pages[tid] as Control).visible = (tid == id)
 	for b in _tab_buttons:
-		b.button_pressed = b.name == "Tab_" + id
+		var on := b.name == "Tab_" + id
+		b.button_pressed = on
+		# Weight change marks the active tab without a second colour.
+		b.add_theme_font_override("font", Tokens.ui_font(700 if on else 500))
 
 
 func _set_status(state: String, message: String) -> void:

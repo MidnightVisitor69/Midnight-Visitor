@@ -20,6 +20,8 @@ extends Control
 
 const CardViewScene := preload("res://scenes/card/card_view.tscn")
 const CardArtScript := preload("res://scripts/card/card_art.gd")
+const PendingPackScript := preload("res://scripts/app/pending_pack.gd")
+const PlaceholderArtScript := preload("res://scripts/card/placeholder_art.gd")
 const PackTearShader := preload("res://shaders/fx/pack_tear.gdshader")
 const PackStripShader := preload("res://shaders/fx/pack_strip.gdshader")
 const RevealRaysShader := preload("res://shaders/fx/reveal_rays.gdshader")
@@ -76,6 +78,7 @@ var _tweens := {}
 var _ripping := false
 var _rip_from := 0.0
 var _ripping_touched := false
+var _art_cache: Dictionary = {}
 
 var _pack: ColorRect
 var _strip_rect: ColorRect
@@ -100,14 +103,6 @@ var _card_size := Vector2(360, 540)
 var _pack_center := Vector2.ZERO
 var _card_center := Vector2.ZERO
 var _additive := CanvasItemMaterial.new()
-
-
-## Art goes through CardArt (T-008): the one loading path with the LRU cache
-## and the placeholder fallback. Until the pull payload carries cards.art_path
-## this resolves to the shared procedural placeholder - identical pixels to
-## what the pack used to build itself, but now swappable by data alone.
-func _placeholder_art() -> Dictionary:
-	return CardArtScript.placeholder_for("pack")
 
 
 func _ready() -> void:
@@ -207,7 +202,7 @@ func _start() -> void:
 		RevealPlan.STEP_CLOSED:
 			_run_closed()
 		RevealPlan.STEP_TEARING:
-			_run_tear()
+			_start_tear()
 		RevealPlan.STEP_REVEALING:
 			_start_reveal()
 
@@ -241,7 +236,7 @@ func _start_tear() -> void:
 	if token != _run:
 		return
 	# The strip is off now, so the journal can say the pack is open.
-	PendingPack.mark_torn()
+	PendingPackScript.mark_torn()
 	_tween("_strip", 0.0, 1.0, Motion.PACK_STRIP_MS, Motion.EXIT, Motion.EXIT_EASE)
 	_tween("_burst", 1.0, 0.0, Motion.PACK_STRIP_MS, Motion.EXIT, Motion.EXIT_EASE)
 	await _wait(Motion.PACK_STRIP_MS / 1000.0)
@@ -270,7 +265,7 @@ func _run_reveal() -> void:
 		if token != _run or step != RevealPlan.STEP_REVEALING:
 			return
 		beat_index += 1
-		PendingPack.mark_revealed(beat_index - 1)
+		PendingPackScript.mark_revealed(beat_index - 1)
 		_prepare_beat()
 
 
@@ -343,7 +338,7 @@ func _go_summary() -> void:
 ## summary has to be able to bring the same pack back.
 func _on_done() -> void:
 	_play("acquire")
-	PendingPack.finish()
+	PendingPackScript.finish()
 	closed.emit()
 
 
@@ -366,7 +361,7 @@ func _prepare_beat() -> void:
 	var beat := _beats[beat_index]
 	_tease = RevealPlan.tease_color(str(beat["rarity"]))
 	_pity_shown = bool(beat["pity"])
-	_card_front.set_card(str(beat["rarity"]), _placeholder_art())
+	_card_front.set_card(str(beat["rarity"]), _art_for(beat), _meta_for(beat))
 	_card_front.set_variant(str(beat["variant"]))
 	_pity_tag.text = "Pity!"
 	for p in ["_card_out", "_flip", "_glow", "_flash", "_rays", "_dim"]:
@@ -462,7 +457,7 @@ func _skip_current() -> void:
 			# Cancel the glow ramp and the flip, then move on.
 			_cancel_tweens()
 			beat_index += 1
-			PendingPack.mark_revealed(beat_index - 1)
+			PendingPackScript.mark_revealed(beat_index - 1)
 			_prepare_beat()
 			_run += 1
 			_start_reveal()
@@ -472,7 +467,8 @@ func _skip_current() -> void:
 
 func _process(delta: float) -> void:
 	# Lean is the only thing eased per frame; everything else is a tween.
-	var next := TiltInput.damp(_lean, _lean_target, Motion.PACK_LEAN_DAMP, delta)
+	var f := 1.0 - exp(-maxf(Motion.PACK_LEAN_DAMP, 0.0) * maxf(delta, 0.0))
+	var next := lerpf(_lean, _lean_target, f)
 	if not is_equal_approx(next, _lean):
 		_lean = next
 		_sync_visual()
@@ -609,6 +605,40 @@ func _placeholder_art() -> Dictionary:
 	return _art_cache
 
 
+## The pull payload carries ids, not presentation data. GameState already
+## holds the collection rows the server sent, so the reveal and the summary
+## show the real name, set and art for cards the player owns; anything else
+## (first pull before the collection refresh, screenshots) falls back to the
+## procedural placeholder. No data is invented here.
+func _lookup(card: Dictionary) -> Dictionary:
+	if not is_inside_tree():
+		return {}
+	var gs := get_node_or_null("/root/GameState")
+	if gs == null:
+		return {}
+	var id := str(card.get("card_id", ""))
+	for row in gs.collection:
+		if row is Dictionary and str(row.get("card_id", "")) == id:
+			return row
+	return {}
+
+
+func _meta_for(card: Dictionary) -> Dictionary:
+	var row := _lookup(card)
+	return {
+		"name": str(row.get("name", "")),
+		"set_id": str(row.get("set_id", "")),
+	}
+
+
+func _art_for(card: Dictionary) -> Dictionary:
+	var row := _lookup(card)
+	if row.is_empty():
+		return _placeholder_art()
+	return CardArt.textures_for(str(card.get("card_id", "")),
+			str(card.get("rarity", "common")), str(row.get("art_path", "")))
+
+
 # --- tweens --------------------------------------------------------------------
 
 ## Tween one animated property and repaint. Existing tween on the same property
@@ -688,18 +718,18 @@ func _make_summary_cell(card: Dictionary, is_new: bool) -> Control:
 
 	var holder := Control.new()
 	holder.name = "Card"
-	holder.custom_minimum_size = _summary_card_size
+	holder.custom_minimum_size = _summary_card_size()
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	var view := CardViewScene.instantiate() as CardView
-	view.size = _summary_card_size
-	view.pivot_offset = _summary_card_size * 0.5
+	view.size = _summary_card_size()
+	view.pivot_offset = _summary_card_size() * 0.5
 	# No tilt input per cell: ten accelerometer readers on a summary grid is
 	# waste, and a pinned tilt keeps the shot stable.
 	view.use_tilt_override = true
 	view.tilt_override = Vector2(0.35, -0.2)
 	holder.add_child(view)
-	view.set_card(str(card.get("rarity", "common")), _placeholder_art())
+	view.set_card(str(card.get("rarity", "common")), _art_for(card), _meta_for(card))
 	view.set_variant(str(card.get("variant", "none")))
 
 	if is_new:
@@ -863,11 +893,13 @@ func _build_stage() -> void:
 
 	_card_front = CardViewScene.instantiate() as CardView
 	_card_front.name = "CardFront"
-	_card_front.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_card_front.use_tilt_override = true
 	_card_front.tilt_override = Vector2(0.45, -0.25)
 	_card_front.visible = false
 	_card_slot.add_child(_card_front)
+	# Anchors applied AFTER add_child: a preset set on a parentless scene
+	# instance keeps the .tscn's default offsets and renders oversized.
+	_card_front.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	_flash_rect = ColorRect.new()
 	_flash_rect.name = "Flash"

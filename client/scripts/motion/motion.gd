@@ -3,6 +3,11 @@ extends RefCounted
 ## Every duration and curve the game animates with, in one file (ANIMATOR.md:
 ## the dev tunes here; these move into the design tokens later).
 ##
+## Reduced motion: `Motion.reduced = true` freezes every IDLE effect (card
+## breathing, foil creep, particle sparkles, pack auto-shake) while keeping
+## tilt/drag response, which is the user's own input rather than autoplay.
+## No settings screen exists yet (D-003); this is the flag it will flip.
+##
 ## Nothing here draws. Screens read these constants so changing a timing is one
 ## edit instead of a hunt, and so a screenshot can seek to a fixed progress
 ## point and land on the same frame every time.
@@ -10,6 +15,10 @@ extends RefCounted
 ## Bands the dev set: tap feedback 80-120 ms, card flip 250-350 ms, pack tear
 ## 400-700 ms, and a build-up that may run to 1.4 s for legendary only. No
 ## linear UI motion anywhere; the helpers below name the four curves in use.
+
+# --- accessibility ---------------------------------------------------------------
+## Global reduced-motion switch. See the class doc: idle dies, input lives.
+static var reduced := false
 
 # --- tap feedback ---------------------------------------------------------------
 const TAP_MS := 100.0
