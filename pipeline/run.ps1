@@ -315,6 +315,11 @@ try {
             Log "$id FAILED -> blocked ($first)"
         }
         Remove-Item "$Wt\.task.md", "$Wt\.verify.txt" -ErrorAction SilentlyContinue
+        # A finished task (pass or fail) sends the next one back to the top of the ladder: free models
+        # recover within hours, and a remembered offset kept later tasks on the paid tier (2026-10-11,
+        # design lane stuck on deepseek after one bad hour). Infra step-downs above still persist
+        # within a task, because they `continue` before reaching this line.
+        if ($Offset -ne 0) { $Offset = 0; Set-Content $OffsetFile 0 }
         $done++
     }
     Write-Status
