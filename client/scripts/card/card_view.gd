@@ -32,6 +32,8 @@ const HOLO_INTENSITY := 0.85
 ## here keeps the card lane free of autoload lookups (and deterministic in
 ## tests, which default it back to 1.0).
 static var holo_scale := 1.0
+## Battery saver (D-003) turns the particle accents off entirely.
+static var particles_enabled := true
 ## Foil is held back over the figure so the character stays readable.
 const HOLO_DEPTH_MASK := 0.55
 ## Below this width the plate text cannot be read: art only, no plate.
@@ -515,7 +517,7 @@ func _show(layer: TextureRect, key: String) -> void:
 func _update_particle_state() -> void:
 	if _particles == null:
 		return
-	var want := _tier == "legendary"
+	var want := _tier == "legendary" and particles_enabled
 	_particles.visible = want
 	_particles.emitting = want and not Motion.reduced
 

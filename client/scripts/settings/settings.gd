@@ -245,6 +245,8 @@ func _apply_side_effect(key: String) -> void:
 			TiltInput.sensitivity = tilt_sensitivity
 		"battery_saver":
 			Engine.max_fps = BATTERY_SAVER_FPS if battery_saver else 0
+			# Lighter work per frame: no particle accents anywhere.
+			CardView.particles_enabled = not battery_saver
 		"sfx_volume", "haptics_on":
 			_apply_sfx()
 		"text_scale", "high_contrast":

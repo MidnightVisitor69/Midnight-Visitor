@@ -271,12 +271,13 @@ class GearIcon extends Control:
 		var c := size * 0.5
 		var r: float = minf(size.x, size.y) * 0.5 - 3.0
 		var col := Tokens.color(&"text_secondary")
-		draw_arc(c, r * 0.52, 0.0, TAU, 24, col, 2.0, true)
+		# Hub ring plus eight short teeth: reads as a gear, not a sun.
+		draw_arc(c, r * 0.42, 0.0, TAU, 24, col, 2.0, true)
 		for i in 8:
 			var a := TAU * float(i) / 8.0
-			var inner := c + Vector2(cos(a), sin(a)) * r * 0.6
+			var inner := c + Vector2(cos(a), sin(a)) * r * 0.62
 			var outer := c + Vector2(cos(a), sin(a)) * r
-			draw_line(inner, outer, col, 2.0, true)
+			draw_line(inner, outer, col, 3.0, true)
 
 
 # --- construction -----------------------------------------------------------
@@ -338,6 +339,8 @@ func _build_top_bar() -> void:
 	# The gear lives in the top bar (task) and opens Settings as an overlay.
 	_gear_button = Button.new()
 	_gear_button.name = "GearButton"
+	# Quiet: the gear is a secondary control, so it wears no neon edge.
+	_gear_button.theme_type_variation = "ButtonGhost"
 	_gear_button.custom_minimum_size = Vector2(MIN_TAP_DP, MIN_TAP_DP)
 	_gear_button.focus_mode = Control.FOCUS_ALL
 	_gear_button.add_theme_stylebox_override("focus", _focus_style())

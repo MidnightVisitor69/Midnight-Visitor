@@ -23,6 +23,8 @@ const SettingsScreenScript := preload("res://scripts/settings/settings_screen.gd
 const AppShellScript := preload("res://scripts/app/app_shell.gd")
 const PackOpeningScript := preload("res://scripts/app/pack_opening.gd")
 const CardViewScript := preload("res://scripts/card/card_view.gd")
+const HomeTabScript := preload("res://scripts/app/tabs/home_tab.gd")
+const RarityMarkerScript := preload("res://scripts/ui/components/rarity_marker.gd")
 
 const MIN_ROW := 48.0
 const APP_VERSION := "0.1.0-alpha"
@@ -31,8 +33,12 @@ const APP_VERSION := "0.1.0-alpha"
 # --- helpers -----------------------------------------------------------------
 
 func _settings(name: String) -> SettingsScript:
+	# Always start from defaults: a previous run's file must not leak a setting
+	# into this one (tests mutate and persist on purpose).
+	var path := "user://test_d003_%s.cfg" % name
+	_remove(path)
 	var s: SettingsScript = SettingsScript.new()
-	s.config_path = "user://test_d003_%s.cfg" % name
+	s.config_path = path
 	s.reload()
 	return s
 
@@ -233,6 +239,50 @@ func test_pack_opening_reads_quick_open_and_skip_tear() -> void:
 	assert_true(PackOpeningScript.wants_skip_tear(s), "skip tear reaches the reveal")
 	s.quick_open = false
 	assert_true(not PackOpeningScript.wants_quick_open(s), "and it follows the toggle back")
+	s.free()
+
+
+func test_battery_saver_caps_fps_and_drops_particles() -> void:
+	var s := _settings("battery")
+	var was := CardView.particles_enabled
+	s.battery_saver = true
+	assert_eq(Engine.max_fps, 30, "30 fps cap")
+	assert_true(not CardView.particles_enabled, "particles off")
+	var v: CardView = CardViewScript.new()
+	v.set_card("legendary", _art())
+	v.set_variant("rainbow")
+	assert_true(not v._particles.emitting, "legendary sparkles stay off")
+	v.free()
+	s.battery_saver = false
+	assert_eq(Engine.max_fps, 0, "cap lifted")
+	assert_true(CardView.particles_enabled, "particles come back")
+	CardView.particles_enabled = was
+	s.free()
+
+
+func test_confirm_before_spending_gems_is_wired() -> void:
+	var s := _settings("spend")
+	assert_true(not HomeTabScript.needs_spend_confirm(null, 160), "no settings: no prompt")
+	assert_true(HomeTabScript.needs_spend_confirm(s, 160), "default ON prompts")
+	s.confirm_spend_gems = false
+	assert_true(not HomeTabScript.needs_spend_confirm(s, 160), "off means no prompt")
+	assert_true(not HomeTabScript.needs_spend_confirm(s, 0), "a free pull never prompts")
+	s.free()
+
+
+func test_colorblind_rarity_drives_the_marker_label() -> void:
+	var s := _settings("cbrarity")
+	var marker: RarityMarker = RarityMarkerScript.new()
+	marker.settings = s
+	marker.set_rarity("epic")
+	marker._ready()
+	assert_true(marker.colorblind_safe(), "default is ON")
+	assert_true(marker._label.visible, "default shows shape AND label")
+	s.colorblind_rarity = false
+	marker._apply()
+	assert_true(not marker.colorblind_safe(), "setting reaches the marker")
+	assert_true(not marker._label.visible, "off is the compact marker")
+	marker.free()
 	s.free()
 
 

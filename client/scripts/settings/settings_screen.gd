@@ -272,6 +272,10 @@ func _build_top_bar() -> void:
 	back.focus_mode = Control.FOCUS_ALL
 	back.custom_minimum_size = Vector2(0.0, MIN_ROW)
 	back.add_theme_stylebox_override("focus", _focus_style())
+	back.add_theme_font_size_override("font_size", Tokens.font_size(&"body"))
+	back.add_theme_font_override("font", Tokens.ui_font(600))
+	for state_name in ["font_color", "font_hover_color", "font_pressed_color"]:
+		back.add_theme_color_override(state_name, Tokens.color(&"text_primary"))
 	back.pressed.connect(_on_back)
 	_a11y(back, "Back", "Close settings and return to the game")
 	row.add_child(back)
@@ -346,7 +350,7 @@ func _build_account() -> void:
 			"Copy your player ID for support")
 	_action_row(col, "Sign out", _on_sign_out, "End this session on this device")
 	var del := _action_row(col, "Delete account", _on_delete,
-			"Permanently delete your account and every card")
+			"Permanently delete your account and every card", "ButtonGhost", "danger")
 	_value_labels["delete_button"] = del
 
 
@@ -392,12 +396,18 @@ func _toggle_row(parent: VBoxContainer, label: String, key: String, desc: String
 	row.custom_minimum_size = Vector2(0.0, MIN_ROW)
 	row.add_theme_stylebox_override("focus", _focus_style())
 	row.text = label
+	# Ghost variation for the flat shape, but the label reads as a row label,
+	# not a link: Body size in primary text (hierarchy is size + weight).
+	row.add_theme_font_override("font", Tokens.ui_font(500))
+	row.add_theme_font_size_override("font_size", Tokens.font_size(&"body"))
+	for state_name in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		row.add_theme_color_override(state_name, Tokens.color(&"text_primary"))
 	_a11y(row, label, desc)
 
 	var state := Label.new()
 	state.name = "State"
-	state.theme_type_variation = "Caption"
 	state.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	state.add_theme_font_size_override("font_size", Tokens.font_size(&"label"))
 	state.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	state.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	state.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
@@ -410,7 +420,7 @@ func _toggle_row(parent: VBoxContainer, label: String, key: String, desc: String
 	var s := _settings_node()
 	row.button_pressed = bool(s.get(key)) if s != null else bool(SettingsScript.DEFAULTS[key])
 	_paint_toggle(state, row.button_pressed)
-	row.toggled.connect(_on_toggle.bind(key))
+	row.toggled.connect(_on_toggle.bind(key, row))
 	_state_labels[key] = state
 
 	parent.add_child(row)
@@ -436,7 +446,8 @@ func _slider_row(parent: VBoxContainer, label: String, key: String,
 	head.add_child(name_label)
 	var value := Label.new()
 	value.name = "Value"
-	value.theme_type_variation = "Caption"
+	value.add_theme_font_size_override("font_size", Tokens.font_size(&"label"))
+	value.add_theme_color_override("font_color", Tokens.color(&"text_secondary"))
 	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	value.text = str(fmt.call(initial))
@@ -499,7 +510,7 @@ func _option_row(parent: VBoxContainer, label: String, key: String,
 
 
 func _action_row(parent: VBoxContainer, label: String, handler: Callable,
-		desc: String, variation := "ButtonGhost") -> Button:
+		desc: String, variation := "ButtonGhost", color_name := "text_primary") -> Button:
 	var row := Button.new()
 	row.name = "Row_" + label.to_snake_case()
 	row.text = label
@@ -508,6 +519,11 @@ func _action_row(parent: VBoxContainer, label: String, handler: Callable,
 	row.focus_mode = Control.FOCUS_ALL
 	row.custom_minimum_size = Vector2(0.0, MIN_ROW)
 	row.add_theme_stylebox_override("focus", _focus_style())
+	row.add_theme_font_override("font", Tokens.ui_font(500))
+	row.add_theme_font_size_override("font_size", Tokens.font_size(&"body"))
+	var tint := Tokens.color(StringName(color_name))
+	for state_name in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		row.add_theme_color_override(state_name, tint)
 	row.pressed.connect(handler)
 	_a11y(row, label, desc)
 	parent.add_child(row)
@@ -527,13 +543,18 @@ func _value_row(parent: VBoxContainer, label: String, value_name: String) -> Lab
 	name_label.theme_type_variation = "Body"
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_label.custom_minimum_size.x = 200.0
 	row.add_child(name_label)
 
 	var value := Label.new()
 	value.name = "Value"
-	value.theme_type_variation = "Caption"
+	value.add_theme_font_size_override("font_size", Tokens.font_size(&"label"))
+	value.add_theme_color_override("font_color", Tokens.color(&"text_secondary"))
 	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	# Long values (a player id, the credits line) wrap instead of overflowing.
+	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(value)
 
 	parent.add_child(row)
@@ -544,10 +565,12 @@ func _value_row(parent: VBoxContainer, label: String, value_name: String) -> Lab
 
 # --- row handlers -------------------------------------------------------------
 
-func _on_toggle(pressed: bool, key: String) -> void:
+func _on_toggle(pressed: bool, key: String, row: Button) -> void:
 	_write_setting(key, pressed)
 	if _state_labels.has(key):
 		_paint_toggle(_state_labels[key] as Label, pressed)
+	# Weight marks the on state too, so it reads without colour alone.
+	row.add_theme_font_override("font", Tokens.ui_font(700 if pressed else 500))
 
 
 func _paint_toggle(label: Label, on: bool) -> void:
@@ -585,7 +608,10 @@ func _on_recenter() -> void:
 
 
 func _on_copy_id() -> void:
-	var id := _player_id if not _player_id.is_empty() else str(_supabase().get("user_id"))
+	var id := _player_id
+	if id.is_empty():
+		var sb := _supabase()
+		id = str(sb.get("user_id")) if sb != null else ""
 	DisplayServer.clipboard_set(id)
 	_toast("Player ID copied" if not id.is_empty() else "No player ID yet")
 
@@ -887,7 +913,7 @@ func screenshot_setup(i: int) -> String:
 			_scroll_to(0)
 			return "settings_top"
 		1:
-			_scroll_to(720)
+			_scroll_to(200)
 			return "settings_middle"
 		2:
 			_scroll_to(1000000)
