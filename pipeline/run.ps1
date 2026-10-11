@@ -113,7 +113,10 @@ function Invoke-Builder([string] $id, [string] $message, [string] $logFile, [str
     $stdout = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
     if ($stdout -match '## Report') { return 'ok' }
     $errText = Get-Content "$logFile.err" -Raw -ErrorAction SilentlyContinue
-    if ($errText -match '(?i)rate.?limit|quota|insufficient.?(balance|credit)|ProviderModelNotFound|ECONNREFUSED|ENOTFOUND|AI_APICallError') { return 'infra' }
+    # 504/upstream-idle: the provider dropped the stream mid-task (seen on nemotron-3.5-lightning
+    # 2026-10-11 02:49, A-004: "Streaming response failed: [504] Upstream idle timeout exceeded").
+    # That is the model hanging, not the task failing: walk the ladder instead of burning attempts.
+    if ($errText -match '(?i)rate.?limit|quota|insufficient.?(balance|credit)|ProviderModelNotFound|ECONNREFUSED|ENOTFOUND|AI_APICallError|upstream.?(idle|timeout)|streaming response failed|\[504\]|http.?504|status.?504') { return 'infra' }
     return 'ok'
 }
 
