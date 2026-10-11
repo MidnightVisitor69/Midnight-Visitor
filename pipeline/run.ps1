@@ -143,6 +143,9 @@ function Invoke-Builder([string] $id, [string] $message, [string] $logFile, [str
 
 # ---------------------------------------------------------------- start-up guards
 if (Test-Path "$P\STOP") { Log 'STOP present; not starting'; Write-Status; exit 0 }
+# Dev 2026-10-11: no pipeline work while streaming. Builds and Godot verify runs (windows, CPU, RAM)
+# compete with OBS. A task already running when OBS opens finishes its current step.
+if (Get-Process obs64, obs32, obs -ErrorAction SilentlyContinue) { Log 'OBS is open (streaming); not starting'; Write-Status; exit 0 }
 $Cooldown = "$P\.cooldown$($L.Tag)"   # per lane: one provider outage shouldn't idle every lane
 if (Test-Path $Cooldown) {
     if ((Get-Date) -lt [datetime](Get-Content $Cooldown)) { Write-Status; exit 0 }
