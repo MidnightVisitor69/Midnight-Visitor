@@ -6,8 +6,9 @@ $lock = "$P\.monitor.lock"
 if ((Test-Path $lock) -and (Get-Process -Id ([int](Get-Content $lock -Raw)) -ErrorAction SilentlyContinue)) { exit 0 }
 Set-Content $lock $PID
 try {
-    # Main account's free model, then the second account's (no local models: GPU belongs to renders).
-    $chain = @('opencode/space-bunny-free')
+    # Same ranked free ladder as run.ps1 (smoke-tested 2026-10-11 00:29; space-bunny-free hangs
+    # intermittently, so it is last). No local models: the GPU belongs to renders.
+    $chain = @('opencode/nemotron-3.5-lightning-free', 'opencode/ling-3.1-flash-free', 'opencode/step-5-preview-free', 'opencode/longcat-2.5-preview-free', 'opencode/nemotron-3-ultra-free', 'opencode/space-bunny-free')
     if (Test-Path 'E:\AI\Tools\opencode-alt\opencode\auth.json') { $chain += 'alt|opencode/space-bunny-free' }
     foreach ($entry in $chain) {
         $model = $entry -replace '^alt\|', ''
