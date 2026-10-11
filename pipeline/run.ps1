@@ -34,7 +34,14 @@ $Branch = $L.Branch
 # which the dev signs into themselves); used only after the main account's options are exhausted.
 $AltHome = 'E:\AI\Tools\opencode-alt'
 $HasAlt = Test-Path "$AltHome\opencode\auth.json"
-$Models = if (Test-Path "$P\FREE_ONLY") { @($Free, "alt|$Free", "alt|$Flash", 'alt|opencode/deepseek-v4.1-flash') } else { $L.Models }
+# Free ladder (dev 2026-10-11: "stay free but try different free models ... go down the list
+# until we have to go to the paid tier"). Ranked by the 00:29 smoke test
+# (pipeline/logs/model-smoke.txt): these five answered a trivial prompt in seconds while
+# space-bunny-free hung at the 90s timeout (it hangs intermittently since 10-10 12:24, so it
+# stays last and verification decides). Main account first, then the alt account, then the
+# paid tier as the final fallback only.
+$FreeChain = @('opencode/nemotron-3.5-lightning-free', 'opencode/ling-3.1-flash-free', 'opencode/step-5-preview-free', 'opencode/longcat-2.5-preview-free', 'opencode/nemotron-3-ultra-free', 'opencode/space-bunny-free')
+$Models = if (Test-Path "$P\FREE_ONLY") { @($FreeChain) + @($FreeChain | ForEach-Object { "alt|$_" }) + @($Flash, $Kimi) } else { $L.Models }
 if (-not $HasAlt) { $Models = @($Models | Where-Object { $_ -notlike 'alt|*' }) }
 $OffsetFile = "$P\.model-offset$($L.Tag)"
 $Offset = [int](Get-Content $OffsetFile -ErrorAction SilentlyContinue)
