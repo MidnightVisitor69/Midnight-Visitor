@@ -45,3 +45,6 @@ tmp_*.txt
 worktree_test.txt
 test_import.mjs
 .kilo/
+
+# Recovery agent registry (append-only event log, local coordination state)
+pipeline/agents/

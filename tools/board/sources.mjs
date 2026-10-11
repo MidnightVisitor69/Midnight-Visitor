@@ -478,3 +478,118 @@ export function newestSweep(names) {
   }
   return newest;
 }
+// --------------------------------------------------------------------------- recovery agents
+
+// A running agent that has not written an event for this long is shown as stale, never as running.
+export const AGENT_STALE_MIN = 30;
+export const AGENT_STATUSES = ["queued", "running", "blocked", "completed", "failed", "cancelled"];
+export const AGENT_EVENTS = ["register", "update", "heartbeat"];
+// Fields an event may carry besides ts/id/event; a later event overrides only the ones it has.
+const AGENT_FIELDS = [
+  "task", "workstream", "provider", "model", "agent", "repo", "branch", "worktree",
+  "owns", "status", "summary", "error", "results", "log",
+];
+
+function parseAgentLine(line) {
+  let event;
+  try {
+    event = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (event === null || typeof event !== "object" || Array.isArray(event)) return null;
+  if (typeof event.id !== "string" || event.id === "") return null;
+  if (!AGENT_EVENTS.includes(event.event)) return null;
+  const ms = typeof event.ts === "string" ? Date.parse(event.ts) : Number.NaN;
+  if (!Number.isFinite(ms)) return null;
+  return { event, ms };
+}
+
+// Folds the append-only registry by id in file order. Nothing is invented: a field no event ever
+// carried stays null, and a bad line is counted and skipped instead of stopping the page.
+export function readAgentRegistry(path, now) {
+  const text = tryRead(path);
+  if (text === null) return { agents: [], badLines: 0, missing: true };
+  const byId = new Map();
+  let badLines = 0;
+  for (const raw of text.split(/\r?\n/)) {
+    if (raw.trim() === "") continue;
+    const parsed = parseAgentLine(raw);
+    if (parsed === null) {
+      badLines += 1;
+      continue;
+    }
+    const { event, ms } = parsed;
+    let agent = byId.get(event.id);
+    if (agent === undefined) {
+      agent = { id: event.id, firstSeenMs: ms, lastUpdateMs: ms };
+      for (const field of AGENT_FIELDS) agent[field] = null;
+      byId.set(event.id, agent);
+    }
+    agent.firstSeenMs = Math.min(agent.firstSeenMs, ms);
+    agent.lastUpdateMs = Math.max(agent.lastUpdateMs, ms);
+    if (event.event === "heartbeat") continue; // a heartbeat refreshes lastUpdate only
+    for (const field of AGENT_FIELDS) {
+      if (event[field] !== undefined && event[field] !== null) agent[field] = event[field];
+    }
+  }
+  const agents = [...byId.values()].map((agent) => {
+    const ageMin = (now - agent.lastUpdateMs) / 60000;
+    const stale = agent.status === "running" && ageMin > AGENT_STALE_MIN;
+    return {
+      ...agent,
+      displayStatus: stale ? "stale" : (agent.status ?? "not observed"),
+      stale,
+      lastUpdateAgeMin: ageMinutes(agent.lastUpdateMs, now),
+      // Elapsed is first event to last event, or to now while the agent is live.
+      elapsedMin: ageMinutes(
+        agent.firstSeenMs,
+        agent.status === "running" && !stale ? now : agent.lastUpdateMs,
+      ),
+    };
+  });
+  return { agents, badLines, missing: false };
+}
+
+// --------------------------------------------------------------------------- generation jobs
+
+// render_queue.py (image repo) writes {version, candidates, done: {"<key>": {status, file, reasons}}}
+// where status is "passed" or "rejected". There is no per-record timestamp, so "recent" means
+// the last records in file order, and the state file's mtime is the only time we can show.
+export const RENDER_STATE_PATH = "E:/AI/Waifu Image Pipeline/out/render_state.json";
+const MAX_RECENT_JOBS = 20;
+
+export function readGenerationJobs(path = RENDER_STATE_PATH, now = Date.now()) {
+  const video = { source: "video job source: not wired yet" };
+  const text = tryRead(path);
+  if (text === null) {
+    return { image: { missing: true, note: "image queue: no state file (no runs observed)" }, video };
+  }
+  let state;
+  try {
+    state = JSON.parse(text);
+  } catch {
+    return { image: { missing: false, unreadable: true, note: "image queue: state file unreadable" }, video };
+  }
+  const done = state !== null && typeof state.done === "object" && state.done !== null ? state.done : {};
+  const records = Object.entries(done).map(([key, value]) => ({
+    key,
+    status: typeof value?.status === "string" ? value.status : "not observed",
+    file: value?.file ?? null,
+    reasons: Array.isArray(value?.reasons) ? value.reasons : [],
+  }));
+  const counts = {};
+  for (const record of records) counts[record.status] = (counts[record.status] ?? 0) + 1;
+  const info = tryStat(path);
+  return {
+    image: {
+      missing: false,
+      unreadable: false,
+      total: records.length,
+      counts,
+      recent: records.slice(-MAX_RECENT_JOBS).reverse(),
+      stateAgeMin: info === null ? null : ageMinutes(info.mtimeMs, now),
+    },
+    video,
+  };
+}
