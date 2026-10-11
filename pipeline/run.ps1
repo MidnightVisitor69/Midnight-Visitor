@@ -39,8 +39,10 @@ $HasAlt = Test-Path "$AltHome\opencode\auth.json"
 # (pipeline/logs/model-smoke.txt): these five answered a trivial prompt in seconds while
 # space-bunny-free hung at the 90s timeout (it hangs intermittently since 10-10 12:24, so it
 # stays last and verification decides). Main account first, then the alt account, then the
-# paid tier as the final fallback only.
-$FreeChain = @('opencode/nemotron-3.5-lightning-free', 'opencode/ling-3.1-flash-free', 'opencode/step-5-preview-free', 'opencode/longcat-2.5-preview-free', 'opencode/nemotron-3-ultra-free', 'opencode/space-bunny-free')
+# paid tier as the final fallback only. Re-ranked by the 14:17 probe
+# (pipeline/logs/model-probe-2026-10-11.txt): only ultra and step-5 answered; Test-ModelAlive
+# skips whichever is hanging at run time, so order only decides speed, not correctness.
+$FreeChain = @('opencode/nemotron-3-ultra-free', 'opencode/step-5-preview-free', 'opencode/nemotron-3.5-lightning-free', 'opencode/ling-3.1-flash-free', 'opencode/longcat-2.5-preview-free', 'opencode/space-bunny-free')
 $Models = if (Test-Path "$P\FREE_ONLY") { @($FreeChain) + @($FreeChain | ForEach-Object { "alt|$_" }) + @($Flash, $Kimi) } else { $L.Models }
 if (-not $HasAlt) { $Models = @($Models | Where-Object { $_ -notlike 'alt|*' }) }
 $OffsetFile = "$P\.model-offset$($L.Tag)"
@@ -93,10 +95,29 @@ function Move-Task([IO.FileInfo] $f, [string] $to, [string] $append = '') {
     return Get-Item $dest
 }
 
+# Free models hang for hours without erroring (2026-10-11 probe: 6 of 10 silent at 90s, and the set
+# changes hour to hour), and a hang costs the whole $TaskTimeoutMin. A 60s trivial prompt first
+# turns that into a 1-minute ladder step. Paid models skip it: it would spend allowance for nothing.
+function Test-ModelAlive([string] $model) {
+    if ($model -notlike '*-free') { return $true }
+    $dir = Join-Path $env:TEMP 'waifu-model-probe'; New-Item -ItemType Directory -Force $dir | Out-Null
+    $out = Join-Path $dir "probe$($L.Tag).txt"
+    $proc = Start-Process -FilePath $OpenCode -ArgumentList "run --model $model --dir `"$dir`" `"Reply with exactly: OK`"" `
+        -WorkingDirectory $dir -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError "$out.err"
+    if (-not $proc.WaitForExit(60000)) { & taskkill /PID $proc.Id /T /F 2>&1 | Out-Null; return $false }
+    return [bool]((Get-Content $out -Raw -ErrorAction SilentlyContinue) -match 'OK')
+}
+
 function Invoke-Builder([string] $id, [string] $message, [string] $logFile, [string] $model) {
     # The child process inherits XDG_DATA_HOME at launch, so set it only around Start-Process.
     $useAlt = $model -like 'alt|*'
     if ($useAlt) { $model = $model.Substring(4); $env:XDG_DATA_HOME = $AltHome }
+    $alive = Test-ModelAlive $model
+    if (-not $alive) {
+        if ($useAlt) { Remove-Item Env:XDG_DATA_HOME -ErrorAction SilentlyContinue }
+        Log "$id skipped $model`: no answer to a 60s health check"
+        return 'infra'
+    }
     # PS 5.1 Start-Process joins arguments without quoting, so quote by hand.
     $argLine = "run --agent $($L.Agent) --model $model --auto --dir `"$Wt`" --title `"$id`" `"$message`""
     $proc = Start-Process -FilePath $OpenCode -ArgumentList $argLine -WorkingDirectory $Wt -NoNewWindow -PassThru `
