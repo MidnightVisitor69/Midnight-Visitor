@@ -28,6 +28,10 @@ const TIERS: Array[String] = ["common", "rare", "epic", "legendary"]
 
 ## Foil strength at rest; the detail view multiplies it via foil_emphasis.
 const HOLO_INTENSITY := 0.85
+## Player's Holo intensity setting (D-003), 0..1. Settings owns it; a static
+## here keeps the card lane free of autoload lookups (and deterministic in
+## tests, which default it back to 1.0).
+static var holo_scale := 1.0
 ## Foil is held back over the figure so the character stays readable.
 const HOLO_DEPTH_MASK := 0.55
 ## Below this width the plate text cannot be read: art only, no plate.
@@ -240,7 +244,7 @@ func set_foil_emphasis(emphasis: float) -> void:
 
 
 func _foil_intensity() -> float:
-	return clampf(HOLO_INTENSITY * foil_emphasis, 0.0, 1.0)
+	return clampf(HOLO_INTENSITY * foil_emphasis * holo_scale, 0.0, 1.0)
 
 
 ## Resource path of the shader currently foiling the card, "" when none is.

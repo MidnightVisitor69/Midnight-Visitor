@@ -11,6 +11,12 @@ const FULL_DRAG_PX := 300.0
 const STANDARD_GRAVITY := 9.81
 const DEFAULT_DAMP_RATE := 9.0
 
+## Player settings (D-003), owned by Settings and mirrored here as statics so
+## the card lane never has to look up an autoload. Defaults match the old
+## behaviour exactly: sensor when mobile, full sensitivity.
+static var tilt_mode := "gyroscope"
+static var sensitivity := 1.0
+
 ## Smoothed tilt, safe to feed straight into a shader uniform.
 var tilt := Vector2.ZERO
 
@@ -18,6 +24,21 @@ var _target := Vector2.ZERO
 var _drag_accum := Vector2.ZERO
 var _dragging := false
 var _damp_rate := DEFAULT_DAMP_RATE
+## "Neutral" gravity captured by re-centering: whatever the player's natural
+## hold is, the card reads flat there.
+var _neutral := Vector2.ZERO
+
+
+## Re-center: the current hold becomes level. Called by the Settings screen's
+## Re-center button; a no-op on desktop, where drag is already relative.
+func recenter() -> void:
+	if tilt_mode != "drag" and OS.has_feature("mobile"):
+		_neutral = gravity_to_tilt(Input.get_gravity())
+	else:
+		_neutral = Vector2.ZERO
+	_target = Vector2.ZERO
+	_drag_accum = Vector2.ZERO
+	tilt = Vector2.ZERO
 
 
 ## Gravity in device space -> tilt. Flat screen-up reads (0, 0, -g), so a
@@ -48,9 +69,11 @@ func begin_drag() -> void:
 
 
 func add_drag(relative: Vector2) -> void:
+	if tilt_mode == "off":
+		return
 	_dragging = true
 	_drag_accum += relative
-	_target = drag_to_tilt(_drag_accum)
+	_target = drag_to_tilt(_drag_accum) * sensitivity
 
 
 ## Release eases back to neutral (handled by _process damping toward _target).
@@ -61,8 +84,11 @@ func end_drag() -> void:
 
 
 func _process(delta: float) -> void:
-	if not _dragging and _has_accelerometer():
-		_target = gravity_to_tilt(Input.get_gravity())
+	if tilt_mode == "off":
+		tilt = damp(tilt, Vector2.ZERO, _damp_rate, delta)
+		return
+	if not _dragging and tilt_mode == "gyroscope" and _has_accelerometer():
+		_target = (gravity_to_tilt(Input.get_gravity()) - _neutral) * sensitivity
 	tilt = damp(tilt, _target, _damp_rate, delta)
 
 
