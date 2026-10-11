@@ -258,6 +258,60 @@ function freebuffPanel(freebuff) {
   </div>`;
 }
 
+// stale is its own word: a "running" agent that went quiet must never look alive.
+const AGENT_CHIP = {
+  queued: "", running: "on", stale: "warn", blocked: "bad",
+  completed: "good", failed: "bad", cancelled: "",
+};
+
+function startedAt(ms) {
+  if (typeof ms !== "number") return "n/a";
+  const at = new Date(ms);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+function agentsPanel(registry) {
+  if (registry.missing) return '<p class="na">no registry file</p>';
+  const bad = registry.badLines > 0 ? `<p class="chip warn">${registry.badLines} bad lines</p>` : "";
+  if (registry.agents.length === 0) return `${bad}<p class="na">no agents registered</p>`;
+  const rows = registry.agents
+    .map((a) => {
+      const label = a.stale ? "stale (last: running)" : a.displayStatus;
+      return `<tr>
+        <td>${esc(a.id)}</td><td>${na(a.task)}</td><td>${na(a.workstream)}</td>
+        <td>${na(a.provider)} / ${na(a.model)}</td>
+        <td>${na(a.branch)}<br><span class="muted tiny">${na(a.worktree)}</span></td>
+        <td><span class="chip ${AGENT_CHIP[a.displayStatus] ?? ""}">${esc(label)}</span></td>
+        <td class="num">${startedAt(a.firstSeenMs)}</td>
+        <td class="num">${startedAt(a.lastUpdateMs)} <span class="muted">(${age(a.lastUpdateAgeMin)} ago)</span></td>
+        <td class="num">${age(a.elapsedMin)}</td>
+        <td>${a.error ? `<span style="color:${COLORS.red}">${esc(a.error)}</span> ` : ""}${na(a.summary, a.error ? "" : "n/a")}</td>
+        <td class="tiny">${na(a.results)}<br>${na(a.log, "")}</td>
+      </tr>`;
+    })
+    .join("");
+  return `${bad}<div style="overflow-x:auto"><table style="min-width:900px"><tr><th>Id</th><th>Task</th><th>Workstream</th><th>Provider / model</th><th>Branch / worktree</th><th>Status</th><th>Started</th><th>Last update</th><th>Elapsed</th><th>Summary / error</th><th>Results / log</th></tr>${rows}</table></div>`;
+}
+
+function generationBlock(jobs) {
+  const image = jobs.image;
+  let body;
+  if (image.missing || image.unreadable) body = `<p class="na">${esc(image.note)}</p>`;
+  else {
+    const chips = Object.entries(image.counts)
+      .map(([status, n]) => `<span class="chip ${status === "passed" ? "good" : status === "rejected" ? "warn" : ""}">${esc(status)} ${n}</span>`)
+      .join("");
+    const recent = image.recent
+      .map((r) => `<li>${esc(r.key)} ${esc(r.status)}${r.reasons.length > 0 ? ` - ${esc(r.reasons.join("; "))}` : ""}</li>`)
+      .join("");
+    body = `<div class="strip">${chips || '<span class="chip">no records</span>'}</div>
+      <p class="tiny muted">image queue: ${image.total} records, state file updated ${age(image.stateAgeMin)} ago; newest ${image.recent.length} below (file order, no per-record time)</p>
+      <ul class="lines">${recent}</ul>`;
+  }
+  return `${body}<p class="tiny muted">${esc(jobs.video.source)}</p>`;
+}
+
 function scheduledTable(rows) {
   if (rows === null) return '<p class="na">n/a</p>';
   if (rows.length === 0) return '<p class="na">no Waifu* scheduled task</p>';
@@ -299,6 +353,16 @@ export function renderBoard(model) {
   <div class="strip">${countChips(model.counts)}</div>
   <h2 style="margin-top:12px">Incidents</h2>
   <div class="strip">${incidentList(model.incidents)}</div>
+</section>
+
+<section class="panel">
+  <h2>Recovery agents</h2>
+  ${agentsPanel(model.agents)}
+</section>
+
+<section class="panel">
+  <h2>Generation jobs</h2>
+  ${generationBlock(model.generationJobs)}
 </section>
 
 <section>
