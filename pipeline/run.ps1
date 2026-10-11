@@ -53,7 +53,10 @@ function Test-Ready([IO.FileInfo] $f) {
     $req = Select-String -Path $f.FullName -Pattern '^Requires:\s*(.+)$' | Select-Object -First 1
     if (-not $req) { return $true }
     foreach ($p in ($req.Matches[0].Groups[1].Value -split ',')) {
-        if (-not (Test-Path (Join-Path $Wt $p.Trim()))) { return $false }
+        # Strip trailing prose: "path.sql (does a thing)" must gate on the path only,
+        # otherwise the task waits forever for a file that exists (MONITOR_REPORT 2026-10-10).
+        $path = ($p.Trim() -replace '\s*\(.*\)\s*$', '').TrimEnd(' ', "`t", '/')
+        if (-not (Test-Path (Join-Path $Wt $path))) { return $false }
     }
     return $true
 }
