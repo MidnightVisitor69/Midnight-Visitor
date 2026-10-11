@@ -23,6 +23,7 @@ import {
   STALL_MIN,
   TASK_LANES,
   ageMinutes,
+  RENDER_STATE_PATH,
   firstLines,
   firstTable,
   isDir,
@@ -32,6 +33,8 @@ import {
   makeExec,
   newestSweep,
   parseRunnerLog,
+  readAgentRegistry,
+  readGenerationJobs,
   readGit,
   readModes,
   readScheduledTasks,
@@ -264,7 +267,7 @@ function freebuffWorker(freebuff, versions, branches, now) {
 
 // --------------------------------------------------------------------------- incidents
 
-function collectIncidents({ modes, lanes, monitor, freebuff, scheduledTasks }) {
+function collectIncidents({ modes, lanes, monitor, freebuff, scheduledTasks, agents }) {
   const incidents = [];
   // Only the flags that stop work are incidents. FREE_ONLY and AUTO_MERGE are deliberate modes and
   // already have their own chips in the modes strip.
@@ -310,6 +313,12 @@ function collectIncidents({ modes, lanes, monitor, freebuff, scheduledTasks }) {
     if (task.ok || task.lastResult === 267011) continue;
     incidents.push(`scheduled task ${task.name}: ${task.status}`);
   }
+  for (const agent of agents?.agents ?? []) {
+    const label = `agent ${agent.id}${agent.task ? ` (${agent.task})` : ""}`;
+    if (agent.stale) incidents.push(`${label}: stale, no update for ${agent.lastUpdateAgeMin} min`);
+    else if (agent.status === "failed") incidents.push(`${label}: failed - ${agent.error ?? "no error recorded"}`);
+    else if (agent.status === "blocked") incidents.push(`${label}: blocked - ${agent.error ?? agent.summary ?? "no reason recorded"}`);
+  }
   if (incidents.length <= MAX_INCIDENTS) return incidents;
   return [...incidents.slice(0, MAX_INCIDENTS), `${incidents.length - MAX_INCIDENTS} more`];
 }
@@ -330,6 +339,9 @@ export function buildModel(root, options = {}) {
   );
   const monitor = buildMonitor(pipelineDir, now);
   const freebuff = buildFreebuff(pipelineDir, now);
+  const agents = readAgentRegistry(join(pipelineDir, "agents", "registry.jsonl"), now);
+  // options.renderStatePath lets tests point at a fixture; the real path lives in the image repo.
+  const generationJobs = readGenerationJobs(options.renderStatePath ?? RENDER_STATE_PATH, now);
 
   return {
     generatedMs: now,
@@ -338,7 +350,7 @@ export function buildModel(root, options = {}) {
     versions,
     modes,
     counts: countTasks(lanes),
-    incidents: collectIncidents({ modes, lanes, monitor, freebuff, scheduledTasks }),
+    incidents: collectIncidents({ modes, lanes, monitor, freebuff, scheduledTasks, agents }),
     workers: [
       ...lanes,
       monitorWorker(monitor, versions),
@@ -348,6 +360,8 @@ export function buildModel(root, options = {}) {
     monitor,
     freebuff,
     scheduledTasks,
+    agents,
+    generationJobs,
     mainCommits: git.commits,
   };
 }
@@ -402,6 +416,7 @@ export function main(argv, out = console.log, err = console.error, options = {})
   const model = buildModel(optionsParsed.root, {
     now: options.now,
     exec: options.exec,
+    renderStatePath: options.renderStatePath,
   });
   if (optionsParsed.json) {
     out(JSON.stringify(model, null, 2));
