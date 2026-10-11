@@ -54,6 +54,14 @@ static func get_collection(client: Node) -> Dictionary:
 	return _parsed(res, "collection")
 
 
+## Google Play requires in-app account deletion. The server deletes the auth
+## user and everything that cascades from it; no client data is trusted.
+static func delete_my_account(client: Node) -> Dictionary:
+	var res: Dictionary = await client.call_rpc("delete_my_account")
+	return {"ok": bool(res.get("ok", false)), "data": res.get("data"),
+			"error": str(res.get("error", ""))}
+
+
 ## The argument dictionary pull() sends, kept pure so a test can check the
 ## idempotency key is wired without awaiting a request.
 static func pull_args(banner_id: String, count: int, key: String) -> Dictionary:

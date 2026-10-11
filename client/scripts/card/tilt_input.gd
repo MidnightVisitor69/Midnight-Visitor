@@ -25,20 +25,23 @@ var _drag_accum := Vector2.ZERO
 var _dragging := false
 var _damp_rate := DEFAULT_DAMP_RATE
 ## "Neutral" gravity captured by re-centering: whatever the player's natural
-## hold is, the card reads flat there.
-var _neutral := Vector2.ZERO
+## hold is, the card reads flat there. Static, because the Re-center button
+## levels every card at once.
+static var neutral := Vector2.ZERO
+## Bumped by recenter(); each live input zeroes itself on its next frame.
+static var recenter_seq := 0
+
+var _seen_recenter := 0
 
 
 ## Re-center: the current hold becomes level. Called by the Settings screen's
 ## Re-center button; a no-op on desktop, where drag is already relative.
-func recenter() -> void:
+static func recenter() -> void:
 	if tilt_mode != "drag" and OS.has_feature("mobile"):
-		_neutral = gravity_to_tilt(Input.get_gravity())
+		neutral = gravity_to_tilt(Input.get_gravity())
 	else:
-		_neutral = Vector2.ZERO
-	_target = Vector2.ZERO
-	_drag_accum = Vector2.ZERO
-	tilt = Vector2.ZERO
+		neutral = Vector2.ZERO
+	recenter_seq += 1
 
 
 ## Gravity in device space -> tilt. Flat screen-up reads (0, 0, -g), so a
@@ -84,11 +87,17 @@ func end_drag() -> void:
 
 
 func _process(delta: float) -> void:
+	if _seen_recenter != recenter_seq:
+		# The Re-center button fired: this card starts from level again.
+		_seen_recenter = recenter_seq
+		_target = Vector2.ZERO
+		_drag_accum = Vector2.ZERO
+		tilt = Vector2.ZERO
 	if tilt_mode == "off":
 		tilt = damp(tilt, Vector2.ZERO, _damp_rate, delta)
 		return
 	if not _dragging and tilt_mode == "gyroscope" and _has_accelerometer():
-		_target = (gravity_to_tilt(Input.get_gravity()) - _neutral) * sensitivity
+		_target = (gravity_to_tilt(Input.get_gravity()) - neutral) * sensitivity
 	tilt = damp(tilt, _target, _damp_rate, delta)
 
 
