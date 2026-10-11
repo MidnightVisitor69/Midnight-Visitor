@@ -319,6 +319,13 @@ try {
     }
     Write-Status
 }
+catch {
+    # Without this the runner died silently: finally dropped the lock and the next tick filed the
+    # task as "interrupted" (2026-10-11: T-011, M-003, A-003 all died right after VERIFY: PASS).
+    Log "runner CRASHED at line $($_.InvocationInfo.ScriptLineNumber): $($_.Exception.Message)"
+    throw
+}
 finally {
+    # No catch line above plus a task still in active/ means the process was killed from outside.
     Remove-Item $Lock -ErrorAction SilentlyContinue
 }
