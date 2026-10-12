@@ -51,6 +51,15 @@ func _screen(name := "screen") -> SettingsScreenScript:
 	return screen
 
 
+## screen.settings is a plain property, not a child node: freeing the screen
+## alone leaves the Settings node behind (it showed up as leaked ObjectDB
+## instances at exit). Every test that built a screen must free through here.
+func _free_screen(screen: SettingsScreenScript) -> void:
+	if screen.settings != null:
+		screen.settings.free()
+	screen.free()
+
+
 func _tex() -> ImageTexture:
 	var img := Image.create(4, 6, false, Image.FORMAT_RGBA8)
 	img.fill(Color(1.0, 1.0, 1.0, 1.0))
@@ -320,7 +329,7 @@ func test_delete_account_needs_two_confirmations() -> void:
 	screen.confirm_delete()
 	assert_eq(screen.delete_stage, 3, "the second confirm commits")
 	assert_true(screen.delete_committed, "two confirmations delete")
-	screen.free()
+	_free_screen(screen)
 
 
 func test_delete_can_be_cancelled_at_either_step() -> void:
@@ -330,7 +339,7 @@ func test_delete_can_be_cancelled_at_either_step() -> void:
 	assert_eq(screen.delete_stage, 0)
 	assert_true(not screen.delete_committed)
 	assert_true(not screen.overlay_visible(), "cancel closes the dialog")
-	screen.free()
+	_free_screen(screen)
 
 
 func test_sign_out_needs_a_confirmation() -> void:
@@ -340,7 +349,7 @@ func test_sign_out_needs_a_confirmation() -> void:
 	assert_true(not screen.sign_out_committed, "asking is not signing out")
 	screen.confirm_sign_out()
 	assert_true(screen.sign_out_committed, "confirming signs out")
-	screen.free()
+	_free_screen(screen)
 
 
 # --- layout + accessibility --------------------------------------------------
@@ -351,7 +360,7 @@ func test_every_setting_row_is_tap_sized() -> void:
 	for row in screen.rows():
 		var h := maxf(row.custom_minimum_size.y, row.size.y)
 		assert_true(h >= MIN_ROW, "%s must be >= 48 dp, got %.1f" % [row.name, h])
-	screen.free()
+	_free_screen(screen)
 
 
 func test_every_interactive_control_is_tap_sized() -> void:
@@ -359,7 +368,7 @@ func test_every_interactive_control_is_tap_sized() -> void:
 	for c in screen.interactive_controls():
 		var h := maxf(c.custom_minimum_size.y, c.size.y)
 		assert_true(h >= MIN_ROW, "%s must be >= 48 dp, got %.1f" % [c.name, h])
-	screen.free()
+	_free_screen(screen)
 
 
 ## Guard: an accessibility_name on every control. Drop one and this fails.
@@ -370,7 +379,7 @@ func test_every_interactive_control_has_a_name() -> void:
 		var value: Variant = c.get("accessibility_name")
 		assert_true(value != null and not str(value).is_empty(),
 				"%s has no accessibility_name" % c.name)
-	screen.free()
+	_free_screen(screen)
 
 
 func test_the_shell_controls_are_named_too() -> void:
@@ -398,7 +407,7 @@ func test_info_rows_show_real_account_values() -> void:
 	assert_eq(screen._value_labels["version"].text, APP_VERSION, "version row")
 	assert_true(screen._value_labels["credits"].text.find("Open Font License") >= 0,
 			"credits name the font licence, no real names")
-	screen.free()
+	_free_screen(screen)
 
 
 func test_drop_rates_page_lists_odds_pity_and_holo() -> void:
@@ -410,7 +419,7 @@ func test_drop_rates_page_lists_odds_pity_and_holo() -> void:
 	assert_true(body.find("Epic+ guaranteed") >= 0, "pity")
 	assert_true(body.find("Galaxy 0.2%") >= 0, "holo odds")
 	assert_true(body.find("Pity carries across every banner") >= 0, "the pity rule")
-	screen.free()
+	_free_screen(screen)
 
 
 func test_privacy_and_terms_are_placeholders() -> void:
@@ -419,7 +428,7 @@ func test_privacy_and_terms_are_placeholders() -> void:
 	assert_true(screen._overlay_body.text.find("before launch") >= 0, "privacy says when")
 	screen._on_terms()
 	assert_true(screen._overlay_body.text.find("before launch") >= 0, "terms say when")
-	screen.free()
+	_free_screen(screen)
 
 
 # --- screenshots -------------------------------------------------------------
@@ -430,4 +439,4 @@ func test_settings_screen_exposes_four_states() -> void:
 	for i in 4:
 		assert_true(not screen.screenshot_setup(i).is_empty(), "state %d has a label" % i)
 	assert_eq(screen.delete_stage, 1, "the last state is the delete confirmation")
-	screen.free()
+	_free_screen(screen)
