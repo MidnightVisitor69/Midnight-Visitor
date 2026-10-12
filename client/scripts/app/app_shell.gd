@@ -8,6 +8,8 @@ extends Control
 const HoloTestPath := "res://scenes/dev/holo_test.tscn"
 ## Read the flag from the script so the shell builds in tests without autoloads.
 const ConfigScript := preload("res://scripts/config.gd")
+## The Settings screen (D-003) opens over the shell as a full-screen overlay.
+const SettingsScreenScene := preload("res://scenes/app/settings_screen.tscn")
 
 const TAB_HOME := "home"
 const TAB_COLLECTION := "collection"
@@ -64,6 +66,14 @@ var _overlay: CenterContainer
 var _gem_label: Label
 var _status_label: Label
 var _retry_button: Button
+var _title_label: Label
+var _top_row: HBoxContainer
+var _gear_button: Button
+var _holo_button: Button
+var _settings_screen: Control
+
+## Injectable Settings for tests; null means the autoload.
+var settings: Node = null
 
 
 func _ready() -> void:
@@ -129,6 +139,9 @@ func _connect_autoloads() -> void:
 	var gs := _state_node()
 	if gs != null and not gs.home_changed.is_connected(_update_gems):
 		gs.home_changed.connect(_update_gems)
+	var s := _settings_node()
+	if s != null and not s.changed.is_connected(_on_setting_changed):
+		s.changed.connect(_on_setting_changed)
 
 
 func _state_node() -> Node:
@@ -143,6 +156,63 @@ func _open_holo_test() -> void:
 		get_tree().change_scene_to_file(HoloTestPath)
 
 
+# --- settings ---------------------------------------------------------------
+
+## Open Settings as a full-screen overlay; the tab bar and top bar stay behind
+## it, so the player never loses their place.
+func _open_settings() -> void:
+	if _settings_screen != null and is_instance_valid(_settings_screen):
+		_settings_screen.visible = true
+		_settings_screen.move_to_front()
+		return
+	_settings_screen = SettingsScreenScene.instantiate() as Control
+	_settings_screen.name = "SettingsScreen"
+	_settings_screen.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_settings_screen.closed.connect(_on_settings_closed)
+	add_child(_settings_screen)
+	_settings_screen.move_to_front()
+
+
+func _on_settings_closed() -> void:
+	if _settings_screen != null and is_instance_valid(_settings_screen):
+		_settings_screen.visible = false
+
+
+func _settings_node() -> Node:
+	if settings != null:
+		return settings
+	if not is_inside_tree():
+		return null
+	return get_node_or_null("/root/Settings")
+
+
+func _left_handed() -> bool:
+	var s := _settings_node()
+	return bool(s.get("left_handed_layout")) if s != null else false
+
+
+## Left-handed layout mirrors the floating secondary controls to the other side
+## of the top bar (task). The title and the gem count stay put; only the
+## controls a thumb reaches for move.
+func _apply_left_handed() -> void:
+	if _top_row == null or _gear_button == null:
+		return
+	var n := _top_row.get_child_count()
+	if _left_handed():
+		_top_row.move_child(_gear_button, 0)
+		if _holo_button != null:
+			_top_row.move_child(_holo_button, 1)
+	else:
+		_top_row.move_child(_gear_button, n - 1)
+		if _holo_button != null:
+			_top_row.move_child(_holo_button, n - 2)
+
+
+func _on_setting_changed(key: String) -> void:
+	if key == "left_handed_layout":
+		_apply_left_handed()
+
+
 # --- readouts (used by tests) -----------------------------------------------
 
 ## Every bottom-bar tab button, in draw order.
@@ -155,6 +225,59 @@ func tab_buttons() -> Array[Button]:
 func tab_ids() -> PackedStringArray:
 	_ensure_built()
 	return _tab_ids
+
+
+func gear_button() -> Button:
+	_ensure_built()
+	return _gear_button
+
+
+## The shell's OWN interactive controls, for the accessibility check. The tab
+## pages are other lanes' screens and carry their own names.
+func shell_controls() -> Array[Control]:
+	_ensure_built()
+	var out: Array[Control] = []
+	for b in _tab_buttons:
+		out.append(b)
+	out.append(_gear_button)
+	out.append(_retry_button)
+	if _holo_button != null:
+		out.append(_holo_button)
+	return out
+
+
+# --- accessibility helpers --------------------------------------------------
+
+func _a11y(control: Control, a_name: String, a_desc := "") -> void:
+	control.set("accessibility_name", a_name)
+	if not a_desc.is_empty():
+		control.set("accessibility_description", a_desc)
+
+
+## The keyboard/controller focus ring: a 2-px cyan edge, never a glow.
+func _focus_style() -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Tokens.color(&"surface_2"), 0.0)
+	sb.border_color = Tokens.color(&"accent_secondary")
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(Tokens.radius(&"small"))
+	sb.draw_center = false
+	return sb
+
+
+## The gear glyph: a hub plus eight teeth, 2-px stroke, drawn in code (no PNGs).
+class GearIcon extends Control:
+	func _draw() -> void:
+		var c := size * 0.5
+		var r: float = minf(size.x, size.y) * 0.5 - 3.0
+		var col := Tokens.color(&"text_secondary")
+		# Hub ring plus eight short teeth: reads as a gear, not a sun.
+		draw_arc(c, r * 0.42, 0.0, TAU, 24, col, 2.0, true)
+		for i in 8:
+			var a := TAU * float(i) / 8.0
+			var inner := c + Vector2(cos(a), sin(a)) * r * 0.62
+			var outer := c + Vector2(cos(a), sin(a)) * r
+			draw_line(inner, outer, col, 3.0, true)
 
 
 # --- construction -----------------------------------------------------------
@@ -172,6 +295,7 @@ func _ensure_built() -> void:
 	_sync_status()
 	if is_inside_tree():
 		_connect_autoloads()
+	_apply_left_handed()
 
 
 func _build_top_bar() -> void:
@@ -183,13 +307,16 @@ func _build_top_bar() -> void:
 
 	var row := HBoxContainer.new()
 	row.name = "Row"
+	row.add_theme_constant_override("separation", Tokens.space(&"s8"))
 	_top_bar.add_child(row)
+	_top_row = row
 
-	var title := Label.new()
-	title.text = "Waifu Card Collector"
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(title)
+	_title_label = Label.new()
+	_title_label.name = "Title"
+	_title_label.text = "Waifu Card Collector"
+	_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(_title_label)
 
 	_gem_label = Label.new()
 	_gem_label.name = "Gems"
@@ -199,12 +326,35 @@ func _build_top_bar() -> void:
 
 	# The holo bench never ships enabled, but devs need it reachable.
 	if is_debug:
-		var holo := Button.new()
-		holo.name = "HoloTestButton"
-		holo.text = "Holo test"
-		holo.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
-		holo.pressed.connect(_open_holo_test)
-		row.add_child(holo)
+		_holo_button = Button.new()
+		_holo_button.name = "HoloTestButton"
+		_holo_button.text = "Holo test"
+		_holo_button.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
+		_holo_button.focus_mode = Control.FOCUS_ALL
+		_holo_button.add_theme_stylebox_override("focus", _focus_style())
+		_holo_button.pressed.connect(_open_holo_test)
+		_a11y(_holo_button, "Holo test bench", "Open the developer holo test scene")
+		row.add_child(_holo_button)
+
+	# The gear lives in the top bar (task) and opens Settings as an overlay.
+	_gear_button = Button.new()
+	_gear_button.name = "GearButton"
+	# Quiet: the gear is a secondary control, so it wears no neon edge.
+	_gear_button.theme_type_variation = "ButtonGhost"
+	_gear_button.custom_minimum_size = Vector2(MIN_TAP_DP, MIN_TAP_DP)
+	_gear_button.focus_mode = Control.FOCUS_ALL
+	_gear_button.add_theme_stylebox_override("focus", _focus_style())
+	_gear_button.tooltip_text = "Settings"
+	_gear_button.pressed.connect(_open_settings)
+	_a11y(_gear_button, "Settings", "Open the settings screen")
+	var icon := GearIcon.new()
+	icon.name = "Icon"
+	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_gear_button.add_child(icon)
+	row.add_child(_gear_button)
+
+	_apply_left_handed()
 
 
 func _build_content() -> void:
@@ -247,11 +397,12 @@ func _build_tab_bar() -> void:
 		b.name = "Tab_" + id
 		b.text = TAB_TITLES[id]
 		b.toggle_mode = true
-		b.focus_mode = Control.FOCUS_NONE
+		b.focus_mode = Control.FOCUS_ALL
 		b.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_tab_button_style(b)
 		b.pressed.connect(_select_tab.bind(id))
+		_a11y(b, TAB_TITLES[id], "Switch to the %s tab" % TAB_TITLES[id])
 		row.add_child(b)
 		_tab_buttons.append(b)
 
@@ -271,7 +422,9 @@ func _tab_button_style(b: Button) -> void:
 	b.add_theme_stylebox_override("normal", normal)
 	b.add_theme_stylebox_override("hover", normal)
 	b.add_theme_stylebox_override("pressed", selected)
-	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	# A real focus ring, not StyleBoxEmpty: keyboard/controller users must be
+	# able to see which tab has focus (D-003 accessibility plumbing).
+	b.add_theme_stylebox_override("focus", _focus_style())
 	b.add_theme_color_override("font_color", Tokens.color(&"text_secondary"))
 	b.add_theme_color_override("font_hover_color", Tokens.color(&"text_primary"))
 	b.add_theme_color_override("font_pressed_color", Tokens.color(&"text_primary"))
@@ -299,8 +452,11 @@ func _build_overlay() -> void:
 	_retry_button.name = "RetryButton"
 	_retry_button.text = "Retry"
 	_retry_button.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
+	_retry_button.focus_mode = Control.FOCUS_ALL
+	_retry_button.add_theme_stylebox_override("focus", _focus_style())
 	_retry_button.visible = false
 	_retry_button.pressed.connect(_begin_sign_in)
+	_a11y(_retry_button, "Retry", "Try loading your account again")
 	col.add_child(_retry_button)
 
 

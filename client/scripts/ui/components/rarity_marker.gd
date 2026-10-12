@@ -15,6 +15,9 @@ var _shape: ShapeIcon
 var _label: Label
 var _rarity := "common"
 
+## Injectable Settings (tests); null means the autoload.
+var settings: Node = null
+
 
 func _ready() -> void:
 	add_theme_constant_override("separation", Tokens.space(&"s8"))
@@ -27,6 +30,31 @@ func _ready() -> void:
 	_label.theme_type_variation = "Caption"
 	add_child(_label)
 	_apply()
+	# The Colorblind-friendly rarity setting (D-003) decides whether the text
+	# label rides along with the shape. Default on, so the safe form is what a
+	# fresh install shows.
+	var s := _settings_node()
+	if s != null and not s.changed.is_connected(_on_setting_changed):
+		s.changed.connect(_on_setting_changed)
+
+
+func _settings_node() -> Node:
+	if settings != null:
+		return settings
+	if not is_inside_tree():
+		return null
+	return get_node_or_null("/root/Settings")
+
+
+func _on_setting_changed(key: String) -> void:
+	if key == "colorblind_rarity":
+		_apply()
+
+
+## True when rarity must be legible without colour: shape plus label.
+func colorblind_safe() -> bool:
+	var s := _settings_node()
+	return bool(s.get("colorblind_rarity")) if s != null else true
 
 
 func set_rarity(rarity: String) -> void:
@@ -46,6 +74,8 @@ func _apply() -> void:
 	if _label != null:
 		_label.text = _rarity.capitalize()
 		_label.add_theme_color_override("font_color", Tokens.color(&"text_secondary"))
+		# Off = the compact marker: shape only, no word.
+		_label.visible = colorblind_safe()
 
 
 ## The shape glyphs, 2-px stroke (DESIGNER.md icon rule), drawn in code.

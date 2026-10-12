@@ -41,6 +41,12 @@ var _pity_label: Label
 var _holo_toggle: Button
 var _holo_label: Label
 
+## Injectable Settings (tests); null means the autoload.
+var settings: Node = null
+var _pending_count := 0
+var _confirm_overlay: Control
+var _confirm_label: Label
+
 
 func _ready() -> void:
 	_ensure_built()
@@ -207,7 +213,38 @@ func _cycle_banner(step: int) -> void:
 	_refresh_info()
 
 
+## True when a pull that costs gems should ask first (D-003 setting, default
+## ON). A free pull never prompts; no Settings node means no prompt either, so
+## tests and screenshots keep the old one-tap flow.
+static func needs_spend_confirm(settings: Node, cost: int) -> bool:
+	if settings == null or cost <= 0:
+		return false
+	return bool(settings.get("confirm_spend_gems"))
+
+
+func _settings_node() -> Node:
+	if settings != null:
+		return settings
+	if not is_inside_tree():
+		return null
+	return get_node_or_null("/root/Settings")
+
+
 func _on_open_pressed(count: int) -> void:
+	if _preview_mode or _pulling:
+		return
+	var b := _current_banner()
+	if b.is_empty():
+		return
+	var cost := int(b.get("cost_single", 0)) if count == 1 else int(b.get("cost_ten", 0))
+	if needs_spend_confirm(_settings_node(), cost):
+		_pending_count = count
+		_show_spend_confirm(cost)
+		return
+	_start_pull(count)
+
+
+func _start_pull(count: int) -> void:
 	if _preview_mode or _pulling:
 		return
 	var b := _current_banner()
@@ -239,6 +276,78 @@ func _on_open_pressed(count: int) -> void:
 func _show_error(message: String) -> void:
 	_error_label.text = message
 	_error_label.visible = true
+
+
+# --- confirm before spending (D-003) -----------------------------------------
+
+## The confirm the "Confirm before spending gems" setting turns on: one extra
+## tap before a pull that costs gems, never before a free one.
+func _show_spend_confirm(cost: int) -> void:
+	if _confirm_overlay == null:
+		_build_spend_confirm()
+	_confirm_label.text = "Open for %d gems?" % cost
+	_confirm_overlay.visible = true
+	_confirm_overlay.move_to_front()
+
+
+func _build_spend_confirm() -> void:
+	_confirm_overlay = Control.new()
+	_confirm_overlay.name = "SpendConfirm"
+	_confirm_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_confirm_overlay.visible = false
+	add_child(_confirm_overlay)
+
+	var scrim := ColorRect.new()
+	scrim.color = Color(Tokens.color(&"bg"), 0.82)
+	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_confirm_overlay.add_child(scrim)
+
+	var centre := CenterContainer.new()
+	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_confirm_overlay.add_child(centre)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(520.0, 0.0)
+	panel.add_theme_stylebox_override("panel", Surfaces.panel(2))
+	centre.add_child(panel)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", Tokens.space(&"s16"))
+	panel.add_child(col)
+
+	_confirm_label = Label.new()
+	_confirm_label.name = "Message"
+	_confirm_label.theme_type_variation = "Title"
+	_confirm_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_confirm_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(_confirm_label)
+
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_END
+	row.add_theme_constant_override("separation", Tokens.space(&"s12"))
+	col.add_child(row)
+
+	var cancel := Button.new()
+	cancel.name = "Cancel"
+	cancel.text = "Cancel"
+	cancel.theme_type_variation = "ButtonSecondary"
+	cancel.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
+	cancel.pressed.connect(func() -> void: _confirm_overlay.visible = false)
+	row.add_child(cancel)
+
+	var open := Button.new()
+	open.name = "ConfirmOpen"
+	open.text = "Open"
+	open.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
+	open.pressed.connect(_on_spend_confirmed)
+	row.add_child(open)
+
+
+func _on_spend_confirmed() -> void:
+	_confirm_overlay.visible = false
+	_start_pull(_pending_count)
 
 
 # --- always-visible info row ------------------------------------------------

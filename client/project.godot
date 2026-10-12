@@ -9,6 +9,7 @@ config/features=PackedStringArray("4.3", "Mobile")
 
 [autoload]
 Config="*res://scripts/config.gd"
+Settings="*res://scripts/settings/settings.gd"
 Supabase="*res://scripts/supabase_client.gd"
 GameState="*res://scripts/app/game_state.gd"
 Sfx="*res://scripts/audio/sfx.gd"

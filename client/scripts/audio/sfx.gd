@@ -14,6 +14,10 @@ extends Node
 const AUDIO_DIR := "res://audio/"
 const BUS := "SFX"
 const SETTINGS_PATH := "user://settings.cfg"
+## The legacy file's pair. Kept so an install that predates Settings still
+## round-trips, and so a Settings-less run (unit tests) persists somewhere.
+const LEGACY_SECTION := "audio"
+const LEGACY_ENABLED := "enabled"
 
 ## Never more than three overlapping sounds: a fast pack opening stacks several
 ## cues and the mix must not turn into a pile. The oldest voice is dropped.
@@ -34,8 +38,11 @@ const VARIANT_COUNTS := {
 	"tap": 3,
 }
 
-## Global sound toggle; defaults to on (ANIMATOR.md) and persists.
+## Global sound toggle; defaults to on (ANIMATOR.md) and persists. D-003 moved
+## the canonical value into Settings (sfx_volume > 0); this mirrors it.
 var enabled := true
+## Haptics are their own toggle now (Settings.haptics_on); default on.
+var haptics_on := true
 
 var _rng := RandomNumberGenerator.new()
 var _voices: Array[AudioStreamPlayer] = []
@@ -100,7 +107,7 @@ func play_and_haptic(name: String) -> AudioStreamPlayer:
 ## toggle is off. Input.vibrate_handheld is a no-op off-device, so this is safe
 ## in the editor and in tests.
 func haptic(kind: String) -> int:
-	if not enabled:
+	if not enabled or not haptics_on:
 		return 0
 	var ms: int = int(HAPTIC_MS.get(kind, 0))
 	if ms <= 0:
@@ -143,28 +150,70 @@ static func pitch_jitter_for(rng: RandomNumberGenerator) -> float:
 # --- settings ----------------------------------------------------------------
 
 func set_enabled(on: bool) -> void:
+	apply_settings(on, haptics_on)
+	_write_enabled(on)
+
+
+## Settings -> Sfx one-way push (D-003). Never writes back, so there is no
+## signal loop between the two autoloads.
+func apply_settings(p_enabled: bool, p_haptics_on: bool) -> void:
 	_ensure_pool()
-	enabled = on
-	_settings.set_value("audio", "enabled", on)
-	if not on:
+	enabled = p_enabled
+	haptics_on = p_haptics_on
+	if not enabled:
 		# Silencing must silence now, not at the next tap.
 		for p in _voices:
 			p.stop()
+
+
+func set_haptics_enabled(on: bool) -> void:
+	haptics_on = on
+	var s := _settings_node()
+	if s != null:
+		s.set("haptics_on", on)
+	else:
+		_save_settings()
+
+
+func _write_enabled(on: bool) -> void:
+	var s := _settings_node()
+	if s != null:
+		# Settings persists and re-applies; this is the only writer of sound on.
+		s.set("sfx_volume", 1.0 if on else 0.0)
+		return
+	_settings.set_value(LEGACY_SECTION, LEGACY_ENABLED, on)
 	# Save immediately: a player who turns sound off expects it to stay off.
 	_settings.save(SETTINGS_PATH)
 
 
 func _load_settings() -> void:
+	var s := _settings_node()
+	if s != null:
+		# Settings is the source of truth once it exists.
+		enabled = float(s.get("sfx_volume")) > 0.0
+		haptics_on = bool(s.get("haptics_on"))
+		return
 	if _settings.load(SETTINGS_PATH) != OK:
 		# First run, or an unreadable file: default to on (AGENTS.md launch).
 		enabled = true
 		return
-	enabled = bool(_settings.get_value("audio", "enabled", true))
+	enabled = bool(_settings.get_value(LEGACY_SECTION, LEGACY_ENABLED, true))
 
 
 func _save_settings() -> void:
-	_settings.set_value("audio", "enabled", enabled)
+	var s := _settings_node()
+	if s != null:
+		s.set("haptics_on", haptics_on)
+		s.set("sfx_volume", 1.0 if enabled else 0.0)
+		return
+	_settings.set_value(LEGACY_SECTION, LEGACY_ENABLED, enabled)
 	_settings.save(SETTINGS_PATH)
+
+
+func _settings_node() -> Node:
+	if not is_inside_tree():
+		return null
+	return get_node_or_null("/root/Settings")
 
 
 # --- internals ---------------------------------------------------------------

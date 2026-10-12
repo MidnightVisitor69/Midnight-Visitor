@@ -19,6 +19,15 @@ extends RefCounted
 # --- accessibility ---------------------------------------------------------------
 ## Global reduced-motion switch. See the class doc: idle dies, input lives.
 static var reduced := false
+## Reduced motion is not "no motion": a state change still has to read. This is
+## the task's ceiling for a beat that survives (D-003).
+const REDUCED_MS := 40.0
+
+
+## A duration after the reduced-motion rule. Screens that must still confirm a
+## state change call this instead of the raw constant.
+static func scaled_ms(base_ms: float) -> float:
+	return minf(base_ms, REDUCED_MS) if reduced else base_ms
 
 # --- tap feedback ---------------------------------------------------------------
 const TAP_MS := 100.0
