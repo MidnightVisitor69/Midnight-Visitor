@@ -1,0 +1,20 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/card/card_back.gd" id="1"]
+[ext_resource type="Shader" path="res://shaders/card/card_back.gdshader" id="2"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_3"]
+shader = ExtResource("2")
+
+[node name="CardBack" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 400.0
+offset_bottom = 600.0
+script = ExtResource("1")
+
+[node name="BackFace" type="ColorRect" parent="."]
+layout_mode = 3
+anchors_preset = 15
+color = Color(1, 1, 1, 1)
+material = SubResource("ShaderMaterial_3")

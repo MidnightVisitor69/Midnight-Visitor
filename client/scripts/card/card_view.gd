@@ -23,6 +23,12 @@ extends Control
 
 const PARALLAX_SHADER := preload("res://shaders/card/card_parallax.gdshader")
 const LIGHT_SHADER := preload("res://shaders/card/card_light.gdshader")
+const MATERIAL_SHADERS := {
+	"common": preload("res://shaders/card/material_common.gdshader"),
+	"rare": preload("res://shaders/card/material_rare.gdshader"),
+	"epic": preload("res://shaders/card/material_epic.gdshader"),
+	"legendary": preload("res://shaders/card/material_legendary.gdshader"),
+}
 
 const TIERS: Array[String] = ["common", "rare", "epic", "legendary"]
 
@@ -65,11 +71,7 @@ var _set_id := ""
 var _radius := 0.0        # outer corner radius, px
 var _band := 0.0          # frame band thickness, px
 var _full_art := false    # legendary art tier: hairline edge, art bleeds out
-var _metal := Color.GRAY  # rarity frame metal
-var _sb_outer: StyleBoxFlat   # dark rim of the embossed band
-var _sb_mid: StyleBoxFlat     # the metal itself
-var _sb_hair: StyleBoxFlat    # etched inner hairline
-var _sb_double: StyleBoxFlat  # second etched line (epic/legendary)
+var _metal := Color.GRAY  # rarity frame metal (for gem/ornaments)
 var _plate_top := -1.0
 var _plate_bottom := -1.0
 
@@ -82,6 +84,7 @@ var _bg: TextureRect
 var _char: TextureRect
 var _light: ColorRect
 var _holo: ColorRect
+var _material: ColorRect
 var _particles: CPUParticles2D
 var _tilt_input: TiltInput
 var _name_label: Label
@@ -91,24 +94,15 @@ var _materials: Array[ShaderMaterial] = []
 var _last_motion := -1.0
 
 
-## Frame band + ornaments. Drawn opaque over the art edge.
+## Frame ornaments only (gem + corner ornaments). The frame band + material
+## effects are now drawn by the material shader on _material (child index 1).
+## This layer sits ON the art edge, same as before (pinned by test_holo_variants).
 class FrameLayer extends Control:
 	var host: CardView
 
 	func _draw() -> void:
 		if host == null or size.x < 2.0 or size.y < 2.0:
 			return
-		var rect := Rect2(Vector2.ZERO, size)
-		var ci := get_canvas_item()
-		# Embossed band: dark rim -> metal -> lit inner hairline -> etched line.
-		host._sb_outer.draw(ci, rect)
-		var k := host._band * 0.42
-		if k > 0.4:
-			host._sb_mid.draw(ci, rect.grow(-k))
-		host._sb_hair.draw(ci, rect.grow(-host._band))
-		if host._sb_double != null:
-			var gap := host._band * 0.62
-			host._sb_double.draw(ci, rect.grow(-host._band - gap))
 		_draw_gem()
 		_draw_ornaments()
 
@@ -381,8 +375,16 @@ func _ensure_built() -> void:
 	_particles.visible = false
 	_root.add_child(_particles)
 
-	# Drawn after the art root so the band sits ON the art edge (child index 1,
-	# pinned by test_holo_variants).
+	# Material shader: draws frame band + laminate effects in one pass.
+	# Child index 1 (after _root), so it sits ON the art edge.
+	_material = ColorRect.new()
+	_material.name = "Material"
+	_material.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_material.color = Color.WHITE
+	_material.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_material)
+
+	# Drawn after the material so ornaments sit on top (child index 2).
 	_frame = FrameLayer.new()
 	_frame.name = "Frame"
 	_frame.host = self
@@ -461,6 +463,8 @@ func _apply_tier() -> void:
 	_holo.visible = false
 	_particles.visible = false
 	_particles.emitting = false
+	_material.material = null
+	_material.visible = false
 
 	match _tier:
 		"common":
@@ -479,6 +483,9 @@ func _apply_tier() -> void:
 			_light.visible = true
 			_light.material = _light_material()
 
+	# Material shader for frame + laminate (all tiers)
+	_apply_material()
+	
 	_update_particle_state()
 	_apply_layout()
 	_apply_holo()
@@ -509,6 +516,32 @@ func _apply_holo() -> void:
 	_holo.visible = true
 
 
+## Builds the material shader for the current rarity (frame + laminate).
+func _apply_material() -> void:
+	_material.material = null
+	_material.visible = false
+	var shader: Shader = MATERIAL_SHADERS.get(rarity)
+	if shader == null:
+		return
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	# Frame color from tokens
+	var frame_key := StringName("frame_" + rarity)
+	var frame_col := Tokens.color(frame_key) if Tokens.tokens().colors.has(frame_key) else Tokens.color(&"frame_common")
+	mat.set_shader_parameter("frame_color", frame_col)
+	mat.set_shader_parameter("ink_color", Tokens.color(&"card_ink"))
+	mat.set_shader_parameter("band_thickness", _band)
+	_push_window(mat)
+	mat.set_shader_parameter("motion", 0.0 if Motion.reduced else 1.0)
+	mat.set_shader_parameter("tilt", tilt_override if use_tilt_override else _tilt_input.tilt)
+	# Legendary shader needs time uniform
+	if rarity == "legendary":
+		mat.set_shader_parameter("time", 0.0)
+	_material.material = mat
+	_material.visible = true
+	_materials.append(mat)
+
+
 func _show(layer: TextureRect, key: String) -> void:
 	layer.texture = _art.get(key)
 	layer.visible = layer.texture != null
@@ -533,13 +566,16 @@ func _apply_layout() -> void:
 	var key := StringName("frame_" + rarity)
 	_metal = (Tokens.color(key) if Tokens.tokens().colors.has(key)
 			else Tokens.color(&"frame_common"))
-	_rebuild_frame_style()
 	for mat in _materials:
 		_push_window(mat)
+		mat.set_shader_parameter("band_thickness", _band)
 	if _light.material is ShaderMaterial:
 		_push_window(_light.material)
 	if _holo.material is ShaderMaterial:
 		_push_window(_holo.material)
+	if _material.material is ShaderMaterial:
+		_push_window(_material.material)
+		(_material.material as ShaderMaterial).set_shader_parameter("band_thickness", _band)
 	_layout_plate()
 	if _frame != null:
 		_frame.queue_redraw()
@@ -552,39 +588,6 @@ func _apply_layout() -> void:
 func _push_window(mat: ShaderMaterial) -> void:
 	mat.set_shader_parameter("rect_size", size)
 	mat.set_shader_parameter("corner_radius", _radius)
-
-
-## The embossed band as stacked styleboxes: dark rim, metal, etched hairlines.
-func _rebuild_frame_style() -> void:
-	var band := maxf(_band, 1.0)
-	_sb_outer = StyleBoxFlat.new()
-	_sb_outer.bg_color = Color(0, 0, 0, 0)
-	_sb_outer.border_color = _metal.darkened(0.42)
-	_sb_outer.set_border_width_all(int(round(band)))
-	_sb_outer.set_corner_radius_all(int(round(_radius)))
-
-	_sb_mid = StyleBoxFlat.new()
-	_sb_mid.bg_color = Color(0, 0, 0, 0)
-	_sb_mid.border_color = _metal
-	_sb_mid.set_border_width_all(int(round(band * 0.58)))
-	_sb_mid.set_corner_radius_all(int(round(maxf(_radius - band * 0.42, 1.0))))
-
-	_sb_hair = StyleBoxFlat.new()
-	_sb_hair.bg_color = Color(0, 0, 0, 0)
-	_sb_hair.border_color = Tokens.color(&"frame_hairline")
-	_sb_hair.set_border_width_all(maxi(int(round(band * 0.14)), 1))
-	_sb_hair.set_corner_radius_all(int(round(maxf(_radius - band, 1.0))))
-
-	_sb_double = null
-	if rarity in ["epic", "legendary"]:
-		_sb_double = StyleBoxFlat.new()
-		_sb_double.bg_color = Color(0, 0, 0, 0)
-		var lit := _metal.lightened(0.2)
-		lit.a = 0.5
-		_sb_double.border_color = lit
-		_sb_double.set_border_width_all(1)
-		_sb_double.set_corner_radius_all(
-				int(round(maxf(_radius - band * 1.62, 1.0))))
 
 
 ## Plate geometry + type sizes, clamped to the design tokens.
@@ -659,6 +662,8 @@ func _apply_tilt() -> void:
 			(_light.material as ShaderMaterial).set_shader_parameter("motion", motion)
 		if _holo.material is ShaderMaterial:
 			(_holo.material as ShaderMaterial).set_shader_parameter("motion", motion)
+		if _material.material is ShaderMaterial:
+			(_material.material as ShaderMaterial).set_shader_parameter("motion", motion)
 		_update_particle_state()
 	for mat in _materials:
 		mat.set_shader_parameter("tilt", t)
@@ -666,6 +671,11 @@ func _apply_tilt() -> void:
 		_light.material.set_shader_parameter("tilt", t)
 	if _holo.material is ShaderMaterial:
 		_holo.material.set_shader_parameter("tilt", t)
+	if _material.material is ShaderMaterial:
+		(_material.material as ShaderMaterial).set_shader_parameter("tilt", t)
+	# Legendary material needs time for auto-sweep
+	if _material.material is ShaderMaterial and rarity == "legendary":
+		(_material.material as ShaderMaterial).set_shader_parameter("time", Time.get_ticks_msec() * 0.001)
 
 
 func _parallax_material(depth: Variant, strength: float) -> ShaderMaterial:
