@@ -54,6 +54,11 @@ static func get_collection(client: Node) -> Dictionary:
 	return _parsed(res, "collection")
 
 
+static func get_shop(client: Node) -> Dictionary:
+	var res: Dictionary = await client.call_rpc("get_shop")
+	return _parsed(res, "shop")
+
+
 ## Google Play requires in-app account deletion. The server deletes the auth
 ## user and everything that cascades from it; no client data is trusted.
 static func delete_my_account(client: Node) -> Dictionary:
@@ -197,6 +202,35 @@ static func parse_gems(d: Variant) -> Dictionary:
 	return {"gems": int(_dict(d).get("gems", 0))}
 
 
+static func parse_shop(d: Variant) -> Dictionary:
+	var src := _dict(d)
+	return {
+		"pull_single": int(src.get("pull_single", 0)),
+		"pull_ten": int(src.get("pull_ten", 0)),
+		"packs": src.get("packs", []) as Array,
+		"monthly_pass": {
+			"usd_cents": int(src.get("monthly_pass", {}).get("usd_cents", 0)),
+			"days": int(src.get("monthly_pass", {}).get("days", 30)),
+			"upfront_gems": int(src.get("monthly_pass", {}).get("upfront_gems", 300)),
+			"daily_gems": int(src.get("monthly_pass", {}).get("daily_gems", 120)),
+			"bank_missed_days": bool(src.get("monthly_pass", {}).get("bank_missed_days", false)),
+		},
+		"ad_free_pass": {
+			"usd_cents": int(src.get("ad_free_pass", {}).get("usd_cents", 0)),
+			"one_time": bool(src.get("ad_free_pass", {}).get("one_time", true)),
+		},
+		"streak_repair": {
+			"gem_cost": int(src.get("streak_repair", {}).get("gem_cost", 60)),
+			"max_held": int(src.get("streak_repair", {}).get("max_held", 2)),
+			"ad_repairs_per_month": int(src.get("streak_repair", {}).get("ad_repairs_per_month", 1)),
+		},
+		"ads": {
+			"max_per_day": int(src.get("ads", {}).get("max_per_day", 4)),
+			"gems_per_ad": src.get("ads", {}).get("gems_per_ad"),
+		},
+	}
+
+
 # --- helpers ----------------------------------------------------------------
 
 static func _parsed(res: Dictionary, kind: String) -> Dictionary:
@@ -218,6 +252,8 @@ static func _parsed(res: Dictionary, kind: String) -> Dictionary:
 			data = parse_daily(data)
 		"gems":
 			data = parse_gems(data)
+		"shop":
+			data = parse_shop(data)
 	return {"ok": true, "data": data, "error": ""}
 
 
