@@ -56,13 +56,14 @@ void fragment() {
     vec2 uv = UV;
     float mask = rounded_mask(uv);
     
-    // Base card stock
-    vec3 col = ink_color.rgb;
-    
+    // Frame band only: the art window stays transparent so the art beneath
+    // (child 0 of the CardView) remains the hero.
     // Frame band SDF
     float sdf = frame_sdf(uv);
     float band = smoothstep(0.0, -2.0, sdf); // 1 inside band, 0 outside
     
+    vec3 col = vec3(0.0);
+    float cover = 0.0;
     if (band > 0.001) {
         // Position along frame perimeter for brushing direction
         vec2 half = rect_size * 0.5;
@@ -71,7 +72,6 @@ void fragment() {
         
         // Determine which edge we're on and brush direction
         float dir = 0.0;
-        float edge_blend = 0.0;
         if (q.x > half.x - corner.x && q.y > half.y - corner.y) {
             // Corner: radial brush
             vec2 c = sign(uv * rect_size - half) * (half - corner);
@@ -104,16 +104,15 @@ void fragment() {
             spec = smoothstep(0.15, 0.0, dist_to_highlight) * 0.6;
         }
         
-        col = mix(col, metal_base + vec3(1.0) * spec, band);
+        // Inner hairlines (etched lines) at the art edge
+        float hairline = smoothstep(band_thickness * 1.1, band_thickness * 1.0, -sdf);
+        float hairline2 = smoothstep(band_thickness * 1.5, band_thickness * 1.4, -sdf);
+        
+        col = metal_base + vec3(1.0) * spec;
+        col += vec3(1.0, 0.95, 1.0) * hairline * 0.1;
+        col += vec3(0.9, 0.8, 1.0) * hairline2 * 0.06;
+        cover = band * mask;
     }
     
-    // Inner hairline (etched line)
-    float hairline = smoothstep(band_thickness * 1.1, band_thickness * 1.0, -sdf);
-    col += vec3(1.0, 0.95, 1.0) * hairline * 0.1 * mask;
-    
-    // Second etched line for epic
-    float hairline2 = smoothstep(band_thickness * 1.5, band_thickness * 1.4, -sdf);
-    col += vec3(0.9, 0.8, 1.0) * hairline2 * 0.06 * mask;
-    
-    COLOR = vec4(col, mask);
+    COLOR = vec4(col, cover);
 }

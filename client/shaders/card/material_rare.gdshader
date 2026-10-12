@@ -49,16 +49,14 @@ void fragment() {
     vec2 uv = UV;
     float mask = rounded_mask(uv);
     
-    // Base card stock
-    vec3 col = ink_color.rgb;
-    
-    // Frame band area
+    // Frame band only: the art window stays transparent so the art beneath
+    // (child 0 of the CardView) remains the hero.
     vec2 half = rect_size * 0.5;
     vec2 q = abs(uv * rect_size - half);
     float dist_to_edge = min(half.x - q.x, half.y - q.y);
     float band = smoothstep(band_thickness, 0.0, dist_to_edge);
     
-    // Pearl material on the frame band
+    // Pearl material on the frame band; the sheen shifts with tilt.
     float angle = atan(tilt.y, tilt.x);
     float depth = 1.0 - smoothstep(0.0, band_thickness, dist_to_edge);
     vec3 pearl = pearl_shift(angle, depth);
@@ -75,12 +73,11 @@ void fragment() {
         bevel = cos(bevel_angle - 0.785) * 0.15 * band; // 45 deg light
     }
     
-    col = mix(col, pearl * frame_color.rgb, band);
-    col += bevel * vec3(1.0, 1.0, 1.0);
+    vec3 col = pearl * frame_color.rgb + bevel * vec3(1.0, 1.0, 1.0);
     
-    // Inner hairline
+    // Inner hairline where the satin meets the art window.
     float hairline = smoothstep(band_thickness * 1.12, band_thickness * 1.02, dist_to_edge);
-    col += vec3(1.0, 1.0, 1.0) * hairline * 0.08 * mask;
+    col += vec3(1.0, 1.0, 1.0) * hairline * 0.08;
     
-    COLOR = vec4(col, mask);
+    COLOR = vec4(col, band * mask);
 }

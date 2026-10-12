@@ -76,6 +76,9 @@ func _build() -> void:
 
 
 func _configure_card(rarity_idx: int, tilt: Vector2, variant: String = "none") -> void:
+	# The back is a later sibling, so it draws ON the cards: it must be hidden
+	# or every rarity shot is just the card back.
+	_back.visible = false
 	for i in _cards.size():
 		_cards[i].visible = (i == rarity_idx)
 		if i == rarity_idx:

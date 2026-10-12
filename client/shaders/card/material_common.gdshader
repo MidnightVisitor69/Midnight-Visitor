@@ -36,26 +36,23 @@ void fragment() {
     vec2 uv = UV;
     float mask = rounded_mask(uv);
     
-    // Base card stock color (ink plate)
-    vec3 col = ink_color.rgb;
-    
-    // Fine paper fiber texture
-    float fiber = paper_noise(uv * rect_size);
-    col *= 0.98 + 0.04 * fiber;
-    
-    // Frame band: printed ink border at low saturation
+    // Frame band only: the art window stays transparent so the art beneath
+    // (child 0 of the CardView) remains the hero. No shine on common.
     vec2 half = rect_size * 0.5;
     vec2 q = abs(uv * rect_size - half);
     float dist_to_edge = min(half.x - q.x, half.y - q.y);
     float band = smoothstep(band_thickness, 0.0, dist_to_edge);
     
-    // Desaturated frame color for the printed border
+    // Printed ink border in the rarity color at low saturation, with the
+    // fine paper fiber of the stock reading through it.
+    float fiber = paper_noise(uv * rect_size);
     vec3 frame_desat = mix(frame_color.rgb, vec3(dot(frame_color.rgb, vec3(0.299, 0.587, 0.114))), 0.7);
-    col = mix(col, frame_desat, band * 0.35);
+    vec3 col = mix(ink_color.rgb, frame_desat, 0.85);
+    col *= 0.97 + 0.06 * fiber;
     
-    // Inner hairline highlight (subtle)
+    // Crisp hairline where the stock meets the art window.
     float hairline = smoothstep(band_thickness * 1.15, band_thickness * 1.05, dist_to_edge);
-    col += vec3(1.0, 1.0, 1.0) * hairline * 0.04 * mask;
+    col += vec3(1.0, 1.0, 1.0) * hairline * 0.06;
     
-    COLOR = vec4(col, mask);
+    COLOR = vec4(col, band * mask);
 }

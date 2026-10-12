@@ -24,21 +24,22 @@ float foil_crinkle(vec2 p) {
     return v;
 }
 
-// Glass laminate sheen: sweeping highlight across the card
-float glass_sheen(vec2 uv, vec2 tilt) {
+// Param names must not collide with uniform names - Godot's shader compiler
+// rejects that as a redefinition, so the locals get a suffix.
+float glass_sheen(vec2 uv, vec2 tilt_dir) {
     vec2 p = uv - vec2(0.5);
     // Sheen follows tilt direction, sweeps diagonally
-    float d = p.x * 0.7 + p.y * 0.7 - tilt.x * 0.6 - tilt.y * 0.4;
+    float d = p.x * 0.7 + p.y * 0.7 - tilt_dir.x * 0.6 - tilt_dir.y * 0.4;
     // Add slow auto-sweep when not tilting (motion=1)
     d += sin(time * 0.15) * 0.3 * motion;
     return smoothstep(0.35, 0.0, abs(d)) * 0.4;
 }
 
 // Embossed emblem stamp - raised gold seal
-float emblem_stamp(vec2 uv, vec2 rect_size) {
+float emblem_stamp(vec2 uv, vec2 size) {
     // Position: bottom-right corner, inset
-    vec2 half = rect_size * 0.5;
-    vec2 pos = uv * rect_size - half;
+    vec2 half = size * 0.5;
+    vec2 pos = uv * size - half;
     float inset = 28.0;
     pos.x = half.x - pos.x - inset; // flip to bottom-right
     pos.y = half.y - pos.y - inset;

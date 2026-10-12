@@ -235,4 +235,85 @@ func test_legendary_material_receives_gold_frame() -> void:
 	# Frame color should be gold (frame_legendary)
 	assert_true(abs(frame_col.r - 0.910) < 0.01 and abs(frame_col.g - 0.722) < 0.01 and abs(frame_col.b - 0.294) < 0.01,
 			"legendary frame_color matches frame_legendary token: %s" % frame_col)
+	
 	v.free()
+
+
+# --- Shader-source guards -----------------------------------------------------
+## These read the .gdshader text: shaders are NOT compiled in headless mode,
+## so a compile-time bug in one only surfaces on the GPU at render time, when
+## every scene that contains the card silently fails to draw.
+
+const SHADER_FILES: Array[String] = [
+	"res://shaders/card/material_common.gdshader",
+	"res://shaders/card/material_rare.gdshader",
+	"res://shaders/card/material_epic.gdshader",
+	"res://shaders/card/material_legendary.gdshader",
+	"res://shaders/card/card_back.gdshader",
+]
+
+
+func _shader_source(path: String) -> String:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return ""
+	return f.get_as_text()
+
+
+func test_material_shaders_have_no_param_uniform_collisions() -> void:
+	## Godot's shader compiler rejects a function parameter that shares a name
+	## with a uniform ("Redefinition of 'tilt'"), failing the whole card at
+	## render time only. Catch it here, where it is cheap.
+	var sig := RegEx.new()
+	sig.compile("^[a-z0-9_]+\\s+([a-z0-9_]+)\\s*\\(([^)]*)\\)\\s*\\{")
+	var uni := RegEx.new()
+	uni.compile("^uniform\\s+[a-z0-9_]+\\s+([a-z0-9_]+)")
+	for path in SHADER_FILES:
+		var uniforms := PackedStringArray()
+		var params := PackedStringArray()
+		for raw in _shader_source(path).split("\n"):
+			var line := raw.strip_edges()
+			var m := uni.search(line)
+			if m != null:
+				uniforms.append(m.get_string(1))
+				continue
+			m = sig.search(line)
+			if m != null:
+				for p in m.get_string(2).split(","):
+					var parts: PackedStringArray = p.strip_edges().split(" ", false)
+					if parts.size() >= 2:
+						params.append(parts[1])
+		for p in params:
+			assert_true(not uniforms.has(p),
+					"%s: parameter '%s' collides with a uniform - the shader will not compile" % [
+							path.get_file(), p])
+
+
+func test_material_keeps_the_art_window_transparent() -> void:
+	## The material layer sits ON TOP of the art root, so an opaque interior
+	## erases the character: materials live in the frame band, never over her
+	## face. Guard the alpha term of each non-legendary material.
+	for path in SHADER_FILES:
+		# The card back has nothing beneath it: it IS the full card face.
+		if not path.contains("material_") or path.ends_with("material_legendary.gdshader"):
+			continue
+		var src := _shader_source(path)
+		assert_true(src.contains("band * mask") or src.contains("cover = band * mask"),
+				"%s must keep its alpha inside the frame band" % path.get_file())
+		assert_true(not src.contains("vec4(col, mask)"),
+				"%s paints an opaque interior that hides the art" % path.get_file())
+
+
+func test_materials_preview_hides_the_card_back() -> void:
+	## The back is a later sibling of the cards, so it draws ON them: the
+	## preview must hide it for the rarity shots, or every rarity shot is
+	## just the card back.
+	var preview: Control = load("res://scenes/dev/materials_preview.tscn").instantiate()
+	tree.root.add_child(preview)
+	preview.screenshot_setup(0)
+	assert_true(not preview._back.visible, "card back hidden while a rarity card shows")
+	assert_true(preview._cards[0].visible, "the common card is visible at state 0")
+	preview.screenshot_setup(8)
+	assert_true(preview._back.visible, "card back visible at state 8")
+	assert_true(not preview._cards[0].visible, "rarity cards hidden at state 8")
+	preview.free()
