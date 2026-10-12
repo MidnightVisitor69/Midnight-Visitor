@@ -93,6 +93,9 @@ static func parse_home(d: Variant) -> Dictionary:
 		"created_at": str(src.get("created_at", "")),
 		# Assume anonymous when unsure: it only ever hides account UI.
 		"is_anonymous": bool(src.get("is_anonymous", true)),
+		# Ads (T-015): feature flag and daily count from server.
+		"ads_enabled": bool(src.get("ads_enabled", false)),
+		"ads_today": int(src.get("ads_today", 0)),
 	}
 
 

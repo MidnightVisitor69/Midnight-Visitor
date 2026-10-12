@@ -7,6 +7,8 @@ extends Control
 ## view code lives in _build_* and all state in GameState. Tests and the
 ## screenshot harness inject data with set_preview_data(), which never touches
 ## the network (builder rule).
+##
+## T-015: rewarded ad button (feature-flagged, hidden when ads_enabled=false).
 
 const MIN_TAP_DP := 48.0
 const REWARD_HOLD_SECONDS := 2.0
@@ -40,6 +42,10 @@ var _odds_label: Label
 var _pity_label: Label
 var _holo_toggle: Button
 var _holo_label: Label
+## Ads (T-015)
+var _ad_row: HBoxContainer
+var _ad_button: Button
+var _ad_label: Label
 
 ## Injectable Settings (tests); null means the autoload.
 var settings: Node = null
@@ -71,6 +77,7 @@ func _set_data(home: Dictionary, banners: Array) -> void:
 	_banner_index = clampi(_banner_index, 0, maxi(_banners.size() - 1, 0))
 	_refresh_alpha()
 	_refresh_daily()
+	_refresh_ad()
 	_refresh_pack()
 	_refresh_info()
 
@@ -392,6 +399,66 @@ func _refresh_alpha() -> void:
 	_faucet_row.visible = bool(_home.get("alpha_mode", false))
 
 
+# --- rewarded ads (T-015) ----------------------------------------------------
+
+func _build_ad(parent: Control) -> void:
+	_ad_row = HBoxContainer.new()
+	_ad_row.name = "AdRow"
+	_ad_row.add_theme_constant_override("separation", 12)
+	parent.add_child(_ad_row)
+
+	_ad_label = Label.new()
+	_ad_label.name = "AdLabel"
+	_ad_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ad_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_ad_row.add_child(_ad_label)
+
+	_ad_button = Button.new()
+	_ad_button.name = "AdButton"
+	_ad_button.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
+	_ad_button.pressed.connect(_on_ad_pressed)
+	_ad_row.add_child(_ad_button)
+
+
+func _refresh_ad() -> void:
+	if _ad_row == null:
+		return
+	var ads_enabled := bool(_home.get("ads_enabled", false))
+	var ads_today := int(_home.get("ads_today", 0))
+	var max_ads := Ads.MAX_ADS_PER_DAY
+	_ad_row.visible = ads_enabled
+	if not ads_enabled:
+		return
+	var remaining := maxi(max_ads - ads_today, 0)
+	_ad_label.text = "Watch ad for gems (%d/%d today)" % [ads_today, max_ads]
+	_ad_button.text = "Watch Ad" if remaining > 0 else "Limit Reached"
+	_ad_button.disabled = remaining <= 0
+	_ad_button.tooltip_text = "" if remaining > 0 else "Daily ad limit reached. Come back tomorrow."
+
+
+func _on_ad_pressed() -> void:
+	if _preview_mode:
+		return
+	var gs := _state_node()
+	if gs == null:
+		return
+	var supabase := get_node_or_null("/root/Supabase")
+	if supabase == null:
+		return
+	var result := Ads.request_reward(Ads.REWARD_GEMS_SMALL, _home, supabase)
+	if not result.ok:
+		_show_error(result.error)
+		return
+	# The ad SDK shows the ad; when it closes we refresh home to see the grant.
+	# In tests, the stub calls back immediately. In production, we wait a moment
+	# then refresh (the SSV callback is async).
+	await get_tree().create_timer(1.5).timeout
+	await gs.refresh_home()
+	_refresh_ad()
+	_refresh_daily()
+	_refresh_pack()
+
+
 # --- readouts (used by tests and future tasks) ------------------------------
 
 func info_row() -> Control:
@@ -454,6 +521,21 @@ func holo_toggle() -> Button:
 	return _holo_toggle
 
 
+func ad_button() -> Button:
+	_ensure_built()
+	return _ad_button
+
+
+func ad_label_text() -> String:
+	_ensure_built()
+	return _ad_label.text
+
+
+func ad_row_visible() -> bool:
+	_ensure_built()
+	return _ad_row.visible
+
+
 func banner_name_text() -> String:
 	_ensure_built()
 	return _banner_label.text
@@ -481,11 +563,13 @@ func _ensure_built() -> void:
 
 	_build_faucet(col)
 	_build_daily(col)
+	_build_ad(col)
 	_build_pack(col)
 	_build_info(col)
 
 	_refresh_alpha()
 	_refresh_daily()
+	_refresh_ad()
 	_refresh_pack()
 	_refresh_info()
 
@@ -666,26 +750,31 @@ func _build_info(parent: Control) -> void:
 # --- screenshots ------------------------------------------------------------
 
 func screenshot_count() -> int:
-	return 2
+	return 3
 
 
 func screenshot_setup(i: int) -> String:
 	_ensure_built()
 	match i:
 		0:
-			set_preview_data(_demo_home(1600, false, false), _demo_banners())
+			set_preview_data(_demo_home(1600, false, false, false, 0), _demo_banners())
 			return "ready"
-		_:
-			set_preview_data(_demo_home(40, true, true), _demo_banners())
+		1:
+			set_preview_data(_demo_home(40, true, true, false, 0), _demo_banners())
 			return "poor_claimed_alpha"
+		_:
+			set_preview_data(_demo_home(1600, false, false, true, 2), _demo_banners())
+			return "ads_enabled_two_used"
 
 
-func _demo_home(gems: int, claimed: bool, alpha: bool) -> Dictionary:
+func _demo_home(gems: int, claimed: bool, alpha: bool, ads_enabled: bool, ads_today: int) -> Dictionary:
 	return {
 		"gems": gems,
 		"pity": {"since_epic": 8, "since_legendary": 75, "total_pulls": 40},
 		"streak": {"current": 5, "best": 7, "freezes": 1, "claimed_today": claimed},
 		"alpha_mode": alpha,
+		"ads_enabled": ads_enabled,
+		"ads_today": ads_today,
 	}
 
 
