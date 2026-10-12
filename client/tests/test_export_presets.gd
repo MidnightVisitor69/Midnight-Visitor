@@ -10,7 +10,7 @@ const ANDROID := "preset.0"
 const ANDROID_OPTS := "preset.0.options"
 const DESKTOP := "preset.1"
 const DESKTOP_OPTS := "preset.1.options"
-const INTERNET_KEY := "permissions/android.permission.INTERNET"
+const INTERNET_KEY := "permissions/INTERNET"
 const ANDROID_PACKAGE := "com.waifudev.cardcollector"
 const ANDROID_APP_NAME := "Waifu Card Collector"
 
@@ -30,7 +30,8 @@ func _project() -> ConfigFile:
 
 
 ## Permissions the Android preset actually turns on. Godot stores them as
-## `permissions/<android permission name>` booleans in the preset options.
+## `permissions/<PERMISSION>` booleans in the preset options and maps each one to
+## `android.permission.<PERMISSION>` in the generated manifest.
 func _requested_permissions(cfg: ConfigFile) -> Array[String]:
 	var out: Array[String] = []
 	for key in cfg.get_section_keys(ANDROID_OPTS):
@@ -125,8 +126,8 @@ func test_permission_scan_catches_a_second_permission() -> void:
 
 	var dirty := ConfigFile.new()
 	dirty.set_value(ANDROID_OPTS, INTERNET_KEY, true)
-	dirty.set_value(ANDROID_OPTS, "permissions/android.permission.ACCESS_NETWORK_STATE", true)
-	assert_eq(_permission_violations(dirty), ["permissions/android.permission.ACCESS_NETWORK_STATE"],
+	dirty.set_value(ANDROID_OPTS, "permissions/ACCESS_NETWORK_STATE", true)
+	assert_eq(_permission_violations(dirty), ["permissions/ACCESS_NETWORK_STATE"],
 		"a second permission is reported")
 
 
