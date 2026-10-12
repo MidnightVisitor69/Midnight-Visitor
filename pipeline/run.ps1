@@ -143,6 +143,9 @@ function Invoke-Builder([string] $id, [string] $message, [string] $logFile, [str
 
 # ---------------------------------------------------------------- start-up guards
 if (Test-Path "$P\STOP") { Log 'STOP present; not starting'; Write-Status; exit 0 }
+# Dev 2026-10-11: no pipeline work while streaming. Builds and Godot verify runs (windows, CPU, RAM)
+# compete with OBS. A task already running when OBS opens finishes its current step.
+if (Get-Process obs64, obs32, obs -ErrorAction SilentlyContinue) { Log 'OBS is open (streaming); not starting'; Write-Status; exit 0 }
 $Cooldown = "$P\.cooldown$($L.Tag)"   # per lane: one provider outage shouldn't idle every lane
 if (Test-Path $Cooldown) {
     if ((Get-Date) -lt [datetime](Get-Content $Cooldown)) { Write-Status; exit 0 }
@@ -252,7 +255,9 @@ try {
         $report = ''
         $lastLog = Get-ChildItem "$P\logs\$id.attempt*.log" | Sort-Object Name | Select-Object -Last 1
         if ($lastLog) {
-            $txt = Get-Content $lastLog.FullName -Raw
+            # [string] because -Raw returns $null for an empty log, and .LastIndexOf on $null crashed the
+            # runner right after VERIFY: PASS (2026-10-11 16:28 and 16:44, "runner CRASHED at line 256").
+            $txt = [string](Get-Content $lastLog.FullName -Raw)
             $at = $txt.LastIndexOf('## Report')
             $report = if ($at -ge 0) { $txt.Substring($at) } else { "(builder wrote no report; see pipeline/logs/$($lastLog.Name))" }
         }
@@ -315,6 +320,11 @@ try {
             Log "$id FAILED -> blocked ($first)"
         }
         Remove-Item "$Wt\.task.md", "$Wt\.verify.txt" -ErrorAction SilentlyContinue
+        # A finished task (pass or fail) sends the next one back to the top of the ladder: free models
+        # recover within hours, and a remembered offset kept later tasks on the paid tier (2026-10-11,
+        # design lane stuck on deepseek after one bad hour). Infra step-downs above still persist
+        # within a task, because they `continue` before reaching this line.
+        if ($Offset -ne 0) { $Offset = 0; Set-Content $OffsetFile 0 }
         $done++
     }
     Write-Status

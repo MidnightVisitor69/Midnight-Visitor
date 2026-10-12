@@ -131,12 +131,41 @@ func setup(cards: Array, owned_keys: Array, resume: Dictionary) -> void:
 	_enter(str(resume.get("step", RevealPlan.STEP_CLOSED)), int(resume.get("index", -1)))
 	if _screenshot_mode:
 		return
+	if wants_quick_open(_settings_node()):
+		# Quick open: the whole pack lands on the summary at once.
+		_go_summary()
+		return
 	_start()
 
 
 ## The pure half of "skip", exposed for tests and for the Skip button.
 static func skip_step(from: String) -> String:
 	return RevealPlan.skip_to(from)
+
+
+# --- player preferences (D-003) -------------------------------------------------
+## Pure reads of the Settings autoload, with the settings node passed in so a
+## test can prove the wiring without a tree. Null (tests, dev scenes) keeps the
+## full, unaltered moment.
+
+static func wants_quick_open(settings: Node) -> bool:
+	return bool(settings.get("quick_open")) if settings != null else false
+
+
+static func wants_skip_tear(settings: Node) -> bool:
+	return bool(settings.get("skip_tear_animation")) if settings != null else false
+
+
+func _settings_node() -> Node:
+	if not is_inside_tree():
+		return null
+	return get_node_or_null("/root/Settings")
+
+
+## Every animation beat is measured through here, so Reduce motion shortens the
+## moment without removing it (D-003: essential beats <= 40 ms).
+func _ms(base_ms: float) -> float:
+	return Motion.scaled_ms(base_ms)
 
 
 ## Which beat the reveal is on, or -1. Read by tests.
@@ -211,7 +240,7 @@ func _start() -> void:
 ## rips it for them. Anticipation is the point; an automatic tear must not feel
 ## like the game played itself, so it only fires on a screen nobody touched.
 func _run_closed() -> void:
-	await _wait(Motion.PACK_AUTO_TEAR_SECONDS)
+	await _wait(_ms(Motion.PACK_AUTO_TEAR_SECONDS * 1000.0) / 1000.0)
 	if step != RevealPlan.STEP_CLOSED:
 		return
 	_start_tear()
@@ -220,26 +249,32 @@ func _run_closed() -> void:
 func _start_tear() -> void:
 	if step != RevealPlan.STEP_CLOSED:
 		return
+	if wants_skip_tear(_settings_node()):
+		# Skip tear: the pack is open, no rip animation, no tear sound.
+		step = RevealPlan.STEP_TEARING
+		PendingPackScript.mark_torn()
+		_enter(RevealPlan.STEP_REVEALING, 0)
+		return
 	_ripping = false
 	step = RevealPlan.STEP_TEARING
 	var token := _run + 1
 	_run = token
-	_tween("_shake", 0.0, 1.0, Motion.PACK_SHAKE_MS, Motion.ARRIVE, Motion.ARRIVE_EASE)
-	await _wait(Motion.PACK_SHAKE_MS / 1000.0)
+	_tween("_shake", 0.0, 1.0, _ms(Motion.PACK_SHAKE_MS), Motion.ARRIVE, Motion.ARRIVE_EASE)
+	await _wait(_ms(Motion.PACK_SHAKE_MS) / 1000.0)
 	if token != _run:
 		return
 	# The rip itself: one sound, one haptic, the light of the best rarity inside.
 	_play_and_haptic("pack_tear")
-	_tween("_tear", 0.0, 1.0, Motion.PACK_TEAR_MS, Motion.EXIT, Motion.EXIT_EASE)
-	_tween("_burst", 0.0, 1.0, Motion.PACK_TEAR_MS * 0.5, Motion.ARRIVE, Motion.ARRIVE_EASE)
-	await _wait(Motion.PACK_TEAR_MS / 1000.0)
+	_tween("_tear", 0.0, 1.0, _ms(Motion.PACK_TEAR_MS), Motion.EXIT, Motion.EXIT_EASE)
+	_tween("_burst", 0.0, 1.0, _ms(Motion.PACK_TEAR_MS) * 0.5, Motion.ARRIVE, Motion.ARRIVE_EASE)
+	await _wait(_ms(Motion.PACK_TEAR_MS) / 1000.0)
 	if token != _run:
 		return
 	# The strip is off now, so the journal can say the pack is open.
 	PendingPackScript.mark_torn()
-	_tween("_strip", 0.0, 1.0, Motion.PACK_STRIP_MS, Motion.EXIT, Motion.EXIT_EASE)
-	_tween("_burst", 1.0, 0.0, Motion.PACK_STRIP_MS, Motion.EXIT, Motion.EXIT_EASE)
-	await _wait(Motion.PACK_STRIP_MS / 1000.0)
+	_tween("_strip", 0.0, 1.0, _ms(Motion.PACK_STRIP_MS), Motion.EXIT, Motion.EXIT_EASE)
+	_tween("_burst", 1.0, 0.0, _ms(Motion.PACK_STRIP_MS), Motion.EXIT, Motion.EXIT_EASE)
+	await _wait(_ms(Motion.PACK_STRIP_MS) / 1000.0)
 	if token != _run:
 		return
 	_enter(RevealPlan.STEP_REVEALING, 0)
@@ -273,17 +308,17 @@ func _play_beat(token: int) -> void:
 	var beat := _beats[beat_index]
 	var rarity := str(beat["rarity"])
 	_play("card_slide")
-	await _wait(Motion.CARD_SLIDE_MS / 1000.0)
+	await _wait(_ms(Motion.CARD_SLIDE_MS) / 1000.0)
 	if token != _run:
 		return
 	# Epic and legendary build first: the glow tells you something is behind the
 	# card before the flip takes it away.
 	if rarity in RARITIES_GLOW:
-		_tween("_glow", 0.0, 1.0, Motion.GLOW_RAMP_MS, Motion.ARRIVE, Motion.ARRIVE_EASE)
+		_tween("_glow", 0.0, 1.0, _ms(Motion.GLOW_RAMP_MS), Motion.ARRIVE, Motion.ARRIVE_EASE)
 		if rarity == "legendary":
-			_tween("_rays", 0.0, 1.0, Motion.RAYS_MS, Motion.ARRIVE, Motion.ARRIVE_EASE)
-			_tween("_dim", 0.0, 1.0, Motion.DIM_MS, Motion.ARRIVE, Motion.ARRIVE_EASE)
-		await _wait(Motion.GLOW_RAMP_MS / 1000.0)
+			_tween("_rays", 0.0, 1.0, _ms(Motion.RAYS_MS), Motion.ARRIVE, Motion.ARRIVE_EASE)
+			_tween("_dim", 0.0, 1.0, _ms(Motion.DIM_MS), Motion.ARRIVE, Motion.ARRIVE_EASE)
+		await _wait(_ms(Motion.GLOW_RAMP_MS) / 1000.0)
 		if token != _run:
 			return
 	var reveal := str(REVEAL_SOUNDS.get(rarity, ""))
@@ -297,19 +332,19 @@ func _play_beat(token: int) -> void:
 	else:
 		_play(reveal)
 		_play("card_flip")
-	_tween("_flip", 0.0, 1.0, Motion.CARD_FLIP_MS, Motion.FLIP, Motion.FLIP_EASE)
+	_tween("_flip", 0.0, 1.0, _ms(Motion.CARD_FLIP_MS), Motion.FLIP, Motion.FLIP_EASE)
 	if bool(beat["flash"]):
 		# The flash is what sells the foil; the shimmer rides under it.
-		_tween("_flash", Motion.HOLO_FLASH_ALPHA, 0.0, Motion.HOLO_FLASH_MS,
+		_tween("_flash", Motion.HOLO_FLASH_ALPHA, 0.0, _ms(Motion.HOLO_FLASH_MS),
 				Motion.EXIT, Motion.EXIT_EASE)
 		_play("holo_shimmer")
-	await _wait(Motion.CARD_FLIP_MS / 1000.0)
+	await _wait(_ms(Motion.CARD_FLIP_MS) / 1000.0)
 	if token != _run:
 		return
 	if rarity == "legendary":
 		# Let the rays burn out slowly on their own, so the payoff settles.
-		_tween("_rays", 1.0, 0.0, Motion.RAYS_MS, Motion.EXIT, Motion.EXIT_EASE)
-		_tween("_dim", 1.0, 0.0, Motion.DIM_MS, Motion.EXIT, Motion.EXIT_EASE)
+		_tween("_rays", 1.0, 0.0, _ms(Motion.RAYS_MS), Motion.EXIT, Motion.EXIT_EASE)
+		_tween("_dim", 1.0, 0.0, _ms(Motion.DIM_MS), Motion.EXIT, Motion.EXIT_EASE)
 	await _wait(float(beat["hold_seconds"]))
 
 
