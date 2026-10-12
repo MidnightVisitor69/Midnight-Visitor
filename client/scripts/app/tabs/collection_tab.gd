@@ -1,5 +1,5 @@
 extends Control
-## Collection tab (T-008): every card you own, grouped, filterable, sortable.
+## Collection tab (T-008 + M-003): every card you own, grouped, filterable, sortable.
 ## One question per screen: "what do I have?" - no CTA competes with browsing.
 ##
 ## Data comes from GameState (the only cache that talks to the server); tests
@@ -13,12 +13,17 @@ extends Control
 ## Sort is rarity descending, then name; the filter chips and the set selector
 ## narrow before the sort. The counter only appears with a set selected and only
 ## when the server told us the set size, per the task.
+##
+## M-003: Smooth inertial scroll with rubber-band at ends. Tiles pop in with a
+## staggered fade/scale (30 ms stagger, first screen only). Tap on tile plays
+## tap sound and opens the detail pager.
 
 const CardViewScene := preload("res://scenes/card/card_view.tscn")
 const CardDetailScene := preload("res://scenes/app/card_detail.tscn")
 ## Preloaded (not the global class_name) so it resolves in the headless runner,
 ## whose global-class cache may not yet include CardCatalog.
 const CardCatalogScript := preload("res://scripts/card/card_catalog.gd")
+const PagerMathScript := preload("res://scripts/motion/pager_math.gd")
 
 const MIN_TAP_DP := 48.0
 const GRID_COLUMNS := 3
@@ -46,6 +51,18 @@ var _scroll: ScrollContainer
 var _detail: Control
 var _filter_buttons: Array[Button] = []
 
+# Kinetic scrolling state
+var _kinetic_velocity := 0.0
+var _dragging_scroll := false
+var _drag_start_y := 0.0
+var _drag_start_scroll := 0.0
+var _drag_start_time := 0
+var _last_drag_y := 0.0
+var _last_drag_time := 0
+var _animating_scroll := false
+var _stagger_pending := false
+var _first_rebuild := true
+
 
 func _ready() -> void:
 	_ensure_built()
@@ -69,6 +86,7 @@ func set_preview_data(rows: Array, sizes: Dictionary = {}) -> void:
 	_preview = true
 	_rows = rows
 	_set_sizes = sizes
+	_first_rebuild = true
 	_rebuild()
 
 
@@ -173,7 +191,8 @@ func _ensure_built() -> void:
 	_counter.visible = false
 	col.add_child(_counter)
 
-	_scroll = ScrollContainer.new()
+	# Custom kinetic scroll container (replaces plain ScrollContainer)
+	_scroll = _KineticScrollContainer.new()
 	_scroll.name = "Scroll"
 	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -268,6 +287,7 @@ func _on_collection_changed() -> void:
 	var gs := get_node_or_null("/root/GameState")
 	if gs != null:
 		_rows = gs.collection
+		_first_rebuild = false  # no stagger on live updates
 		_rebuild()
 
 
@@ -275,12 +295,14 @@ func _select_filter(f: String) -> void:
 	_filter = f
 	for b in _filter_buttons:
 		b.button_pressed = b.name == "Filter_" + f
+	_first_rebuild = false
 	_rebuild()
 
 
 func _on_set_selected(index: int) -> void:
 	# Item 0 is always "All sets"; the rest are the distinct set_ids in order.
 	_set_id = "" if index <= 0 else _set_selector.get_item_metadata(index)
+	_first_rebuild = false
 	_rebuild()
 
 
@@ -340,8 +362,19 @@ func _rebuild() -> void:
 		_counter.visible = false
 
 	var tile_size := _tile_size()
-	for g in groups:
-		_grid.add_child(_make_tile(g, tile_size))
+	var first_screen_count: int = min(GRID_COLUMNS * 2, groups.size())  # ~2 rows
+	for i in range(groups.size()):
+		var g := groups[i]
+		var tile := _make_tile(g, tile_size, i)
+		_grid.add_child(tile)
+		# Staggered entrance for first screen only
+		if _first_rebuild and i < first_screen_count:
+			_apply_stagger_entrance(tile, i)
+	
+	if _first_rebuild:
+		_first_rebuild = false
+	# Reset scroll to top on rebuild
+	_scroll.scroll_vertical = 0
 
 
 func _tile_size() -> Vector2:
@@ -357,13 +390,13 @@ func _tile_size() -> Vector2:
 	return Vector2(w, w * 1.5)
 
 
-func _make_tile(group: Dictionary, tile_size: Vector2) -> Control:
+func _make_tile(group: Dictionary, tile_size: Vector2, index: int) -> Control:
 	var tile := Button.new()
 	tile.name = "Tile_" + str(group["card_id"]) + "_" + str(group["variant"])
 	tile.focus_mode = Control.FOCUS_NONE
 	tile.custom_minimum_size = tile_size
 	tile.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	tile.pressed.connect(_open_detail.bind(group))
+	tile.pressed.connect(_open_detail.bind(group, index))
 	# Flat look: the art is the tile, not a button.
 	tile.flat = true
 	var empty := StyleBoxEmpty.new()
@@ -382,9 +415,9 @@ func _make_tile(group: Dictionary, tile_size: Vector2) -> Control:
 	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	view.set_card(str(group["rarity"]), CardArt.textures_for(
 			str(group["card_id"]), str(group["rarity"]), str(group["art_path"])), {
-			"name": str(group.get("name", "")),
-			"set_id": str(group.get("set_id", "")),
-		})
+		"name": str(group.get("name", "")),
+		"set_id": str(group.get("set_id", "")),
+	})
 	view.set_variant(str(group["variant"]))
 	# Tap feedback: the card dips under the finger, nothing else moves.
 	tile.button_down.connect(_dip.bind(view, true))
@@ -417,16 +450,38 @@ func _dip(view: Control, down: bool) -> void:
 
 # --- detail ---------------------------------------------------------------------
 
-func _open_detail(group: Dictionary) -> void:
+func _open_detail(group: Dictionary, tile_index: int) -> void:
+	# Play tap sound
+	Sfx.play("tap")
+	
 	if _detail != null and is_instance_valid(_detail):
 		_detail.queue_free()
 	_detail = CardDetailScene.instantiate() as Control
 	_detail.name = "CardDetail"
 	_detail.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(_detail)
-	_detail.call("setup", group)
+	# Pass the full filtered groups array and the index within it
+	var groups := _visible_groups()
+	_detail.call("setup_pager", groups, tile_index)
 	# The detail renders above everything in this tab.
 	_detail.move_to_front()
+
+
+# --- staggered entrance ---------------------------------------------------------
+
+func _apply_stagger_entrance(tile: Control, index: int) -> void:
+	if Motion.reduced:
+		return
+	var delay := PagerMathScript.stagger_delay(index, GRID_COLUMNS)
+	tile.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	tile.scale = Vector2.ONE * 0.92
+	var tw := tile.create_tween()
+	if delay > 0.0:
+		tw.tween_callback(tile.set_visible.bind(true)).set_delay(delay)
+	tw.tween_property(tile, "modulate:a", 1.0, 0.25) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tw.tween_property(tile, "scale", Vector2.ONE, 0.3) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 # --- screenshots ----------------------------------------------------------------
@@ -483,3 +538,166 @@ func screenshot_setup(i: int) -> String:
 				b.button_pressed = b.name == "Filter_epic"
 			_rebuild()
 			return "collection_epic"
+
+
+# --- Kinetic Scroll Container ---------------------------------------------------
+## Custom ScrollContainer with inertial scroll and rubber-band at ends.
+## Uses _process for the deceleration physics.
+
+class _KineticScrollContainer extends ScrollContainer:
+	const DECELERATION := 2000.0  # px/s^2
+	const RUBBER_BAND_FACTOR := 0.35
+	const MAX_RUBBER_BAND_FRACTION := 0.25
+	const MIN_VELOCITY := 50.0  # px/s below which we stop
+	
+	var _velocity := 0.0
+	var _dragging := false
+	var _drag_start_y := 0.0
+	var _drag_start_scroll := 0.0
+	var _last_y := 0.0
+	var _last_time := 0
+	var _rubber_banding := false
+	var _overshoot := 0.0
+	
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+	
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventScreenTouch:
+			var t := event as InputEventScreenTouch
+			if t.pressed:
+				_begin_drag(t.position.y)
+			else:
+				_end_drag()
+			accept_event()
+		elif event is InputEventMouseButton:
+			var m := event as InputEventMouseButton
+			if m.button_index == MOUSE_BUTTON_LEFT:
+				if m.pressed:
+					_begin_drag(m.position.y)
+				else:
+					_end_drag()
+				accept_event()
+		elif event is InputEventMouseMotion:
+			var mm := event as InputEventMouseMotion
+			if (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+				_update_drag(mm.position.y)
+				accept_event()
+		elif event is InputEventScreenDrag:
+			_update_drag(event.position.y)
+			accept_event()
+	
+	func _begin_drag(y: float) -> void:
+		_dragging = true
+		_rubber_banding = false
+		_velocity = 0.0
+		_drag_start_y = y
+		_drag_start_scroll = scroll_vertical
+		_last_y = y
+		_last_time = Time.get_ticks_msec()
+		# Stop any ongoing animation
+		set_process(false)
+	
+	func _update_drag(y: float) -> void:
+		if not _dragging:
+			return
+		var now := Time.get_ticks_msec()
+		var dt := maxf(now - _last_time, 1.0) / 1000.0
+		var dy := y - _last_y
+		
+		# Instant velocity for smoothing
+		var instant_vel := -dy / dt  # negative because scroll increases downward
+		_velocity = lerpf(_velocity, instant_vel, 0.3)
+		
+		# Apply drag with rubber-band at edges
+		var target_scroll := _drag_start_scroll - (y - _drag_start_y)
+		var clamped := _apply_rubber_band(target_scroll)
+		scroll_vertical = clamped
+		
+		_last_y = y
+		_last_time = now
+	
+	func _end_drag() -> void:
+		if not _dragging:
+			return
+		_dragging = false
+		
+		# If we're in rubber-band zone, spring back
+		if _rubber_banding:
+			_spring_back()
+			return
+		
+		# Start kinetic deceleration if velocity is significant
+		if absf(_velocity) > MIN_VELOCITY:
+			set_process(true)
+	
+	func _apply_rubber_band(scroll: float) -> float:
+		var max_scroll := float(get_v_scroll_bar().max_value)
+		if max_scroll <= 0.0:
+			_rubber_banding = false
+			return 0.0
+		
+		if scroll < 0.0:
+			_rubber_banding = true
+			var overshoot: float = -scroll
+			var max_stretch: float = size.y * MAX_RUBBER_BAND_FRACTION
+			var stretched_val: float = minf(max_stretch, sqrt(overshoot * size.y * RUBBER_BAND_FACTOR) * 2.0)
+			_overshoot = -stretched_val
+			return _overshoot
+		elif scroll > max_scroll:
+			_rubber_banding = true
+			var overshoot: float = scroll - max_scroll
+			var max_stretch: float = size.y * MAX_RUBBER_BAND_FRACTION
+			var stretched_val: float = minf(max_stretch, sqrt(overshoot * size.y * RUBBER_BAND_FACTOR) * 2.0)
+			_overshoot = max_scroll + stretched_val
+			return _overshoot
+		else:
+			_rubber_banding = false
+			_overshoot = 0.0
+			return scroll
+	
+	func _spring_back() -> void:
+		var max_scroll := float(get_v_scroll_bar().max_value)
+		var target := 0.0
+		if scroll_vertical > max_scroll:
+			target = max_scroll
+		# Animate back with ease-out
+		var tw := create_tween()
+		tw.tween_property(self, "scroll_vertical", target, 0.35) \
+				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		_rubber_banding = false
+	
+	func _process(delta: float) -> void:
+		if _dragging or _rubber_banding:
+			return
+		
+		var max_scroll := float(get_v_scroll_bar().max_value)
+		if max_scroll <= 0.0:
+			_velocity = 0.0
+			set_process(false)
+			return
+		
+		# Decelerate
+		var dir: float = sign(_velocity)
+		_velocity -= dir * DECELERATION * delta
+		if sign(_velocity) != dir:
+			_velocity = 0.0
+		
+		if _velocity == 0.0:
+			set_process(false)
+			# Snap to valid range if needed
+			var scroll: float = scroll_vertical
+			if scroll < 0.0:
+				_spring_back()
+			elif scroll > max_scroll:
+				_spring_back()
+			return
+		
+		var new_scroll: float = scroll_vertical + _velocity * delta
+		new_scroll = _apply_rubber_band(new_scroll)
+		scroll_vertical = new_scroll
+		
+		# If we hit rubber-band during deceleration, spring back
+		if _rubber_banding:
+			set_process(false)
+			call_deferred("_spring_back")
