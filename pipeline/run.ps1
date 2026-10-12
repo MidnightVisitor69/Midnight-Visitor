@@ -44,6 +44,9 @@ $HasAlt = Test-Path "$AltHome\opencode\auth.json"
 # skips whichever is hanging at run time, so order only decides speed, not correctness.
 $FreeChain = @('opencode/nemotron-3-ultra-free', 'opencode/step-5-preview-free', 'opencode/nemotron-3.5-lightning-free', 'opencode/ling-3.1-flash-free', 'opencode/longcat-2.5-preview-free', 'opencode/space-bunny-free')
 $Models = if (Test-Path "$P\FREE_ONLY") { @($FreeChain) + @($FreeChain | ForEach-Object { "alt|$_" }) + @($Flash, $Kimi) } else { $L.Models }
+# pipeline/NO_PAID (dev 2026-10-11, overnight): never fall back to a paid model. When every free model
+# fails, the existing "whole chain failed" path cools the lane down for 60 min and retries.
+if (Test-Path "$P\NO_PAID") { $Models = @($Models | Where-Object { $_ -like '*-free' }) }
 if (-not $HasAlt) { $Models = @($Models | Where-Object { $_ -notlike 'alt|*' }) }
 $OffsetFile = "$P\.model-offset$($L.Tag)"
 $Offset = [int](Get-Content $OffsetFile -ErrorAction SilentlyContinue)
