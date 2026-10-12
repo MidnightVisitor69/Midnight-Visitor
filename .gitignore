@@ -3,6 +3,7 @@ client/*.keystore
 client/export_credentials.cfg
 *.apk
 *.aab
+build/
 
 # Pipeline coordination state (not product code)
 pipeline/tasks/
