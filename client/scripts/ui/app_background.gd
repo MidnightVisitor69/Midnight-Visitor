@@ -70,8 +70,7 @@ func _arm_rerender() -> void:
 		return
 	if _viewport.size != wanted:
 		_viewport.size = wanted
-	_source.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_source.size = Vector2(wanted)
+	# _source uses PRESET_FULL_RECT anchors, so it fills the viewport automatically.
 	# Beads and bokeh are circles, so the shader needs the buffer's shape.
 	var material := _source.material as ShaderMaterial
 	if material != null:

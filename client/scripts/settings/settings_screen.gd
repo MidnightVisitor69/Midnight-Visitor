@@ -57,6 +57,9 @@ var _value_labels: Dictionary = {}   # setting key (slider) or name -> Label
 var _option_nodes: Dictionary = {}   # setting key -> OptionButton
 var _slider_nodes: Dictionary = {}   # setting key -> HSlider
 
+var _top_row: HBoxContainer
+var _title_label: Label
+
 
 func _ready() -> void:
 	_ensure_built()
@@ -264,6 +267,15 @@ func _build_top_bar() -> void:
 	row.name = "Row"
 	row.add_theme_constant_override("separation", Tokens.space(&"s12"))
 	bar.add_child(row)
+	_top_row = row
+
+	_title_label = Label.new()
+	_title_label.name = "Title"
+	_title_label.text = "Settings"
+	_title_label.theme_type_variation = "Title"
+	_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(_title_label)
 
 	var back := Button.new()
 	back.name = "BackButton"
@@ -280,14 +292,6 @@ func _build_top_bar() -> void:
 	_a11y(back, "Back", "Close settings and return to the game")
 	row.add_child(back)
 	_controls.append(back)
-
-	var title := Label.new()
-	title.name = "Title"
-	title.text = "Settings"
-	title.theme_type_variation = "Title"
-	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(title)
 
 
 func _build_audio() -> void:
@@ -411,10 +415,10 @@ func _toggle_row(parent: VBoxContainer, label: String, key: String, desc: String
 	state.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	state.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	state.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
-	state.offset_left = -160.0
+	state.offset_left = -(Tokens.space(&"s48") + Tokens.space(&"s32"))
 	state.offset_right = -Tokens.space(&"s16")
-	state.offset_top = -12.0
-	state.offset_bottom = 12.0
+	state.offset_top = -Tokens.space(&"s4")
+	state.offset_bottom = Tokens.space(&"s4")
 	row.add_child(state)
 
 	var s := _settings_node()
@@ -492,7 +496,7 @@ func _option_row(parent: VBoxContainer, label: String, key: String,
 	var opt := OptionButton.new()
 	opt.name = "Option"
 	opt.focus_mode = Control.FOCUS_ALL
-	opt.custom_minimum_size = Vector2(220.0, MIN_ROW)
+	opt.custom_minimum_size = Vector2(Tokens.space(&"s48") * 2 + Tokens.space(&"s16"), MIN_ROW)
 	opt.add_theme_stylebox_override("focus", _focus_style())
 	for v in values:
 		opt.add_item(str(labels.get(v, v)))
@@ -543,7 +547,7 @@ func _value_row(parent: VBoxContainer, label: String, value_name: String) -> Lab
 	name_label.theme_type_variation = "Body"
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	name_label.custom_minimum_size.x = 200.0
+	name_label.custom_minimum_size.x = Tokens.space(&"s48") * 2 + Tokens.space(&"s4")
 	row.add_child(name_label)
 
 	var value := Label.new()
@@ -684,7 +688,7 @@ func _build_overlay() -> void:
 
 	var panel := PanelContainer.new()
 	panel.name = "Panel"
-	panel.custom_minimum_size = Vector2(560.0, 0.0)
+	panel.custom_minimum_size = Vector2(Tokens.space(&"s40") * 7, 0.0)
 	panel.add_theme_stylebox_override("panel", Surfaces.panel(2))
 	centre.add_child(panel)
 
@@ -838,7 +842,7 @@ func _refresh_info_rows() -> void:
 	_set_value("player_id", id if not id.is_empty() else "Not available yet")
 	_set_value("lifetime", FormatScript.cents_to_text(int(_home.get("total_spent_cents", 0))))
 	_set_value("credits",
-			"Fonts: Unbounded and Manrope (SIL Open Font License). Art and code by the studio.")
+			"Fonts: Unbounded and Manrope (SIL Open Font License).")
 	_set_value("version", _version())
 
 

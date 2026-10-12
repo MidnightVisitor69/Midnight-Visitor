@@ -19,6 +19,15 @@ const SCAN_FILES: Array[String] = [
 	"res://theme/surfaces.gd",
 	"res://theme/build_theme.gd",
 	"res://theme/tokens.gd",
+	# App screens (D-004: extend scan to all app scripts)
+	"res://scripts/app/tabs/home_tab.gd",
+	"res://scripts/app/tabs/collection_tab.gd",
+	"res://scripts/app/tabs/trade_tab.gd",
+	"res://scripts/app/tabs/shop_tab.gd",
+	"res://scripts/app/card_detail.gd",
+	"res://scripts/app/pack_opening.gd",
+	"res://scripts/settings/settings_screen.gd",
+	"res://scripts/app/app_shell.gd",
 ]
 
 const TokensScript := preload("res://theme/tokens.gd")

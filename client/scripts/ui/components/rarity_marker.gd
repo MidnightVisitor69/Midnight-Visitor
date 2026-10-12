@@ -23,7 +23,7 @@ func _ready() -> void:
 	add_theme_constant_override("separation", Tokens.space(&"s8"))
 	_shape = ShapeIcon.new()
 	_shape.name = "Shape"
-	_shape.custom_minimum_size = Vector2(20, 20)
+	_shape.custom_minimum_size = Vector2(Tokens.space(&"s16") + Tokens.space(&"s4"), Tokens.space(&"s16") + Tokens.space(&"s4"))
 	add_child(_shape)
 	_label = Label.new()
 	_label.name = "Text"

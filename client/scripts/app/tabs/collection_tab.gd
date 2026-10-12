@@ -159,7 +159,7 @@ func _ensure_built() -> void:
 
 	var col := VBoxContainer.new()
 	col.name = "Column"
-	col.add_theme_constant_override("separation", Tokens.space(&"s12"))
+	col.add_theme_constant_override("separation", Tokens.space(&"s16"))
 	margin.add_child(col)
 
 	_filter_row = HBoxContainer.new()
@@ -209,7 +209,7 @@ func _ensure_built() -> void:
 	_empty = Label.new()
 	_empty.name = "Empty"
 	_empty.theme_type_variation = "Body"
-	_empty.text = "No cards here yet - pulls land on Home."
+	_empty.text = "No cards yet. Open packs on Home to start your collection."
 	_empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_empty.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_empty.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -428,10 +428,10 @@ func _make_tile(group: Dictionary, tile_size: Vector2, index: int) -> Control:
 		badge.name = "Count"
 		badge.text = "x%d" % int(group["copies"])
 		badge.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		badge.offset_left = -76.0
+		badge.offset_left = -Tokens.space(&"s40")
 		badge.offset_top = Tokens.space(&"s8")
 		badge.offset_right = -Tokens.space(&"s8")
-		badge.offset_bottom = Tokens.space(&"s8") + 30.0
+		badge.offset_bottom = Tokens.space(&"s8") + Tokens.space(&"s24")
 		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		tile.add_child(badge)
@@ -473,7 +473,7 @@ func _apply_stagger_entrance(tile: Control, index: int) -> void:
 	if Motion.reduced:
 		return
 	var delay := PagerMathScript.stagger_delay(index, GRID_COLUMNS)
-	tile.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	tile.modulate.a = 0.0
 	tile.scale = Vector2.ONE * 0.92
 	var tw := tile.create_tween()
 	if delay > 0.0:

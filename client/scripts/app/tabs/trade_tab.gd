@@ -131,38 +131,42 @@ func _ensure_built() -> void:
 	margin.name = "Margin"
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "top", "right", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 16)
+		margin.add_theme_constant_override("margin_" + side, Tokens.space(&"s16"))
 	add_child(margin)
 
 	var col := VBoxContainer.new()
 	col.name = "Column"
-	col.add_theme_constant_override("separation", 12)
+	col.add_theme_constant_override("separation", Tokens.space(&"s16"))
 	margin.add_child(col)
 
 	_explainer = Label.new()
 	_explainer.name = "Explainer"
 	_explainer.text = EXPLAINER
 	_explainer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_explainer.theme_type_variation = "Body"
 	col.add_child(_explainer)
 
 	# One quiet panel for both gate rules; no CTA until Wonder Trade ships.
 	var panel := PanelContainer.new()
 	panel.name = "UnlockPanel"
+	panel.add_theme_stylebox_override("panel", Surfaces.panel(1))
 	col.add_child(panel)
 
 	_rules_row = VBoxContainer.new()
 	_rules_row.name = "RulesRow"
-	_rules_row.add_theme_constant_override("separation", 8)
+	_rules_row.add_theme_constant_override("separation", Tokens.space(&"s8"))
 	panel.add_child(_rules_row)
 
 	_age_label = Label.new()
 	_age_label.name = "AgeLabel"
 	_age_label.text = age_text()
+	_age_label.theme_type_variation = "Caption"
 	_rules_row.add_child(_age_label)
 
 	_pulls_label = Label.new()
 	_pulls_label.name = "PullsLabel"
 	_pulls_label.text = pulls_text(0)
+	_pulls_label.theme_type_variation = "Caption"
 	_rules_row.add_child(_pulls_label)
 
 	_refresh()
