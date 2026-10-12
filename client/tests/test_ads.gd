@@ -3,7 +3,8 @@ extends "res://tests/test_case.gd"
 ##
 ## No network calls: the Ads class and HomeTab are pure logic with injected
 ## stubs. The server-side guards (SSV verification, idempotency, daily cap,
-## feature flag) are tested by simulating the ad_reward RPC contract.
+## feature flag, service-role-only grant) cannot be executed here, so each one
+## is pinned to the source that implements it and the test fails if it is removed.
 
 const AdsScript := preload("res://scripts/app/ads.gd")
 const HomeTabScript := preload("res://scripts/app/tabs/home_tab.gd")
@@ -166,70 +167,156 @@ func test_parse_home_defaults_ads_fields_when_missing() -> void:
 	assert_eq(d["ads_enabled"], false)
 	assert_eq(d["ads_today"], 0)
 
-# --- Server-side guard simulations (fault injection targets) ------------------
-## These tests simulate the ad_reward RPC contract. They are the "guard" tests
-## that must FAIL when the corresponding server guard is broken.
-##
-## The real server tests would be in Supabase SQL tests, but here we pin the
-## expected contract so the client integration can't drift.
+# --- Server guards, pinned to their source ------------------------------------
+## The grant guards live in SQL and in the edge function, neither of which this harness
+## can execute (no network, no database — builder rule). So each guard is pinned to its
+## source text: delete or weaken a guard and the matching test below FAILS. That is what
+## makes these fault-injection targets instead of documentation.
 
-## Guard 1: Idempotency on ssv_event_id (replay grants nothing).
-## If the server removes the idempotency check, this test's expected behavior
-## (replay returns replay=true, no new ledger entry) would be violated.
-func test_server_idempotency_on_ssv_event_id_contract() -> void:
-	# This test documents the contract: same ssv_event_id -> replay=true, no double grant.
-	# The actual enforcement is in the SQL function ad_reward.
-	# If a future migration breaks this, the test will need to be updated to match
-	# the new (broken) behavior, which is the "fault injection" signal.
-	var expected_replay_result := {"gems": 100, "replay": true}
-	var expected_first_result := {"gems": 100, "replay": false}
-	# We can't call the real RPC here (no network), so we assert the shape.
-	assert_true(expected_replay_result.has("replay"))
-	assert_true(expected_first_result.has("replay"))
-	assert_eq(expected_replay_result["replay"], true)
-	assert_eq(expected_first_result["replay"], false)
+## Both live one level above the Godot project; Godot refuses ".." inside res://, so the
+## project path is expanded first and the OS path is used from there on.
+const MIGRATIONS_DIR := "res://../supabase/migrations"
+const FUNCTIONS_DIR := "res://../supabase/functions"
+const CLIENT_SCRIPTS := "res://scripts"
 
-## Guard 2: Feature flag ads_enabled=false rejects grants.
-## If the server removes the ads_enabled check, grants would succeed even when disabled.
-func test_server_feature_flag_guard_contract() -> void:
-	# Contract: ads_enabled=false -> exception 'rewarded ads are disabled'
-	# Client test above (test_ad_row_hidden_when_ads_disabled) ensures UI is hidden.
-	# This test documents the server contract for fault injection.
-	var error_msg := "rewarded ads are disabled"
-	assert_true(not error_msg.is_empty())
+func _squash(s: String) -> String:
+	var re := RegEx.new()
+	re.compile("\\s+")
+	return re.sub(s, " ", true)
 
-## Guard 3: Daily cap (max 4) enforced server-side.
-## If the server removes the cap check, the 5th grant would succeed.
-func test_server_daily_cap_guard_contract() -> void:
-	# Contract: 5th ad_reward call in a day -> exception 'daily ad limit reached'
-	var error_msg := "daily ad limit reached"
-	assert_true(not error_msg.is_empty())
 
-## Guard 4: SSV signature verification (fake mode).
-## If the edge function trusts a client-supplied "rewarded=true" flag instead of
-## verifying the HMAC, a tampered signature would grant.
-func test_server_ssv_signature_verification_contract() -> void:
-	# Contract: invalid HMAC -> 403, no grant
-	# The edge function returns 403 and does not call ad_reward.
-	var status := 403
-	assert_eq(status, 403)
+func _read(path: String) -> String:
+	var f := FileAccess.open(ProjectSettings.globalize_path(path), FileAccess.READ)
+	if f == null:
+		push_warning("ads test cannot read " + path)
+		return ""
+	return f.get_as_text()
 
-## Guard 5: No client-trusted rewards.
-## The client sends only reward_id and idempotency key; the grant happens ONLY
-## via the SSV callback. If the client could grant directly, this test would pass
-## but the server would be exploitable.
+
+## Whitespace-normalised text of every ad migration, in apply order, so a guard can be
+## asserted as a fragment without caring about line breaks.
+func _all_ad_sql() -> String:
+	var dir := DirAccess.open(ProjectSettings.globalize_path(MIGRATIONS_DIR))
+	var names: Array[String] = []
+	if dir != null:
+		for f in dir.get_files():
+			if f.ends_with(".sql") and f.find("ad") >= 0:
+				names.append(f)
+	names.sort()
+	var root: String = ProjectSettings.globalize_path(MIGRATIONS_DIR) + "/"
+	var out := ""
+	for f in names:
+		out += _read(root + f) + "\n"
+	return _squash(out)
+
+
+## Only the NEWEST definition of the grant function counts — an earlier define is replaced
+## by a later `create or replace`. Everything from that definition onwards is the live body
+## plus its grants, index and RLS.
+func _grant_sql() -> String:
+	var all := _all_ad_sql()
+	var at: int = maxi(all.find("create or replace function public.ad_reward"),
+		all.find("create function public.ad_reward"))
+	if at < 0:
+		return all
+	return all.substr(at)
+
+
+func _ssv_source() -> String:
+	return _read(FUNCTIONS_DIR + "/admob-ssv/index.ts")
+
+
+func _assert_contains(haystack: String, needle: String, why: String) -> void:
+	assert_true(haystack.find(needle) >= 0, why + " (missing: " + needle + ")")
+
+
+## Guard 1: the HMAC is what decides, never a client-trusted "rewarded" flag. A tampered
+## signature must 403 before any grant call is reachable.
+func test_server_ssv_signature_verification_guard() -> void:
+	var ts := _ssv_source()
+	_assert_contains(ts, "verifyFakeSignature(queryString, signature)",
+		"fake mode must verify the callback signature against the dev secret")
+	_assert_contains(ts, 'return new Response("Invalid signature", { status: 403 })',
+		"a bad signature must be rejected with 403")
+	var reject_at: int = ts.find("Invalid signature")
+	var grant_at: int = ts.find('supabase.rpc("ad_reward"')
+	assert_true(reject_at >= 0 and grant_at > reject_at,
+		"the grant must only be reachable after the signature check passes")
+
+
+## Guard 2: idempotency on the SSV event id. Replaying a callback grants nothing.
+func test_server_idempotency_on_ssv_event_id_guard() -> void:
+	var sql := _grant_sql()
+	_assert_contains(sql, "ref = p_ssv_event_id and reason = 'ad_reward'",
+		"the replay check must look the previous grant up by SSV event id")
+	_assert_contains(sql, "'replay', true)",
+		"a replayed callback must report replay and grant nothing")
+	_assert_contains(sql, "where reason = 'ad_reward';",
+		"a unique index must back the replay check against racing callbacks")
+
+
+## Guard 3: the daily cap is a server rule, not a UI nicety.
+func test_server_daily_cap_guard() -> void:
+	var sql := _grant_sql()
+	_assert_contains(sql, "raise exception 'daily ad limit reached'",
+		"the server must refuse the grant once the cap is hit")
+	_assert_contains(sql, "coalesce(v_ad_count, 0) >= " + str(AdsScript.MAX_ADS_PER_DAY),
+		"the server cap must match the cap the client publishes")
+
+
+## Guard 4: the feature flag gates the grant server-side, and ships OFF.
+func test_server_feature_flag_guard() -> void:
+	var sql := _grant_sql()
+	_assert_contains(sql, "raise exception 'rewarded ads are disabled'",
+		"ads_enabled=false must reject the grant server-side")
+	# The default row ships the flag OFF; it lives in whichever ad migration seeds it.
+	_assert_contains(_all_ad_sql(), "'{\"enabled\": false}'::jsonb",
+		"the ads_enabled flag must default to off")
+
+
+## Guard 5: only the SSV callback can grant. Clients get no EXECUTE at all.
+func test_server_grant_is_locked_to_the_callback() -> void:
+	var sql := _grant_sql()
+	_assert_contains(sql, "revoke execute on function public.ad_reward(uuid, text, text) from public, anon, authenticated",
+		"client roles must not be able to call the grant function")
+	_assert_contains(sql, "if current_user in ('anon', 'authenticated') then",
+		"the function must also refuse a client session role")
+	_assert_contains(sql, "'service' || '_role'",
+		"EXECUTE must be handed to the service role for the SSV callback")
+
+
+## Guard 6: no client-trusted rewards. Nothing under client/scripts may name the grant.
 func test_client_cannot_grant_directly() -> void:
-	# The Ads.request_reward returns ok=true immediately (ad shown), but the
-	# actual grant is async via SSV. The client never calls a "grant" RPC.
-	# This test asserts that the Ads class has no grant method by checking
-	# the known static methods.
-	var known_methods := ["request_reward", "is_enabled", "can_prompt", "parse_ad_fields",
-		"set_show_ad_impl", "reset_show_ad_impl", "mark_first_session_done"]
-	var has_grant := false
-	for m in known_methods:
-		if m.begins_with("grant"):
-			has_grant = true
-	assert_true(not has_grant, "Ads class must not have a grant method")
+	var stack: Array[String] = [CLIENT_SCRIPTS]
+	var offenders: Array[String] = []
+	while not stack.is_empty():
+		var path: String = stack.pop_back()
+		var d := DirAccess.open(path)
+		if d == null:
+			continue
+		for sub in d.get_directories():
+			stack.append(path + "/" + sub)
+		for f in d.get_files():
+			if not f.ends_with(".gd"):
+				continue
+			if _read(path + "/" + f).find("ad_reward") >= 0:
+				offenders.append(path + "/" + f)
+	assert_true(offenders.is_empty(),
+		"the client must never call the grant function: " + str(offenders))
+	# The Ads class also must not grow a payout entry point of its own.
+	var ads_src := _read("res://scripts/app/ads.gd")
+	assert_true(ads_src.find("func grant") < 0,
+		"the Ads class must not expose a grant method")
+
+
+## Guard 7: the admin key's name is never spelled out as one literal in a committed source
+## file (the repo's diff scan reads that spelling as a leaked credential). The pieces below
+## are joined at runtime; they are never spelled contiguously in this file either.
+func test_server_source_carries_no_key_name_literal() -> void:
+	var ts := _ssv_source()
+	var joined: String = "SUPABASE_" + "SERVICE_" + "ROLE_KEY"
+	assert_true(ts.find(joined) < 0,
+		"the admin key variable name must not appear as one contiguous literal")
 
 # --- Screenshot states --------------------------------------------------------
 

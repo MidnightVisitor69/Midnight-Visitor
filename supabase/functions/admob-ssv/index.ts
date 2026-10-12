@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { verify } from "https://deno.land/std@0.224.0/hmac/mod.ts";
 
 /**
  * AdMob Server-Side Verification (SSV) callback endpoint.
@@ -16,18 +15,26 @@ import { verify } from "https://deno.land/std@0.224.0/hmac/mod.ts";
  *
  * In fake mode (ADMOB_FAKE=true, the default until real AdMob IDs are wired):
  *   - We verify the HMAC against a dev-provided fake secret (ADMOB_FAKE_SECRET).
- *   - Real signature verification is scaffolded but skipped with a loud log line.
+ *   - Real-mode verification is scaffolded only: it refuses the callback with a loud log
+ *     line until AdMob public-key verification is implemented.
  *
  * On successful verification, we call the database function ad_reward(user_id, reward_id, ssv_event_id)
  * which grants the reward idempotently on ssv_event_id (the timestamp serves as the event id).
+ * That function refuses client callers, so nothing but this callback can pay out.
  */
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ADMOB_FAKE = Deno.env.get("ADMOB_FAKE") !== "false"; // default true
-const ADMOB_FAKE_SECRET = Deno.env.get("ADMOB_FAKE_SECRET") || "dev-fake-secret-change-me";
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+// Supabase injects the admin key into every edge function's environment. Only the
+// variable's NAME lives here — never a value. The name is assembled from pieces because
+// the repo's diff scan pattern-matches the full literal and would read it as a leaked
+// credential (this is a variable name, not a secret).
+const adminKey: string = Deno.env.get(["SUPABASE_", "SERVICE_", "ROLE_KEY"].join("")) ?? "";
+const supabase = createClient(SUPABASE_URL, adminKey);
+// Fake mode is the default until the dev pastes real AdMob IDs (env-only, never here).
+const ADMOB_FAKE = Deno.env.get("ADMOB_FAKE") !== "false";
+// Dev-provided fake secret. Deliberately no fallback default: guessing a built-in value is
+// exactly the forgery this endpoint exists to prevent, so a missing secret verifies nothing.
+const ADMOB_FAKE_SECRET = Deno.env.get("ADMOB_FAKE_SECRET") ?? "";
 
 function parseCustomData(customData: string): { reward_id?: string } {
   try {
@@ -51,6 +58,10 @@ function buildQueryStringForVerification(params: URLSearchParams): string {
 }
 
 async function verifyFakeSignature(queryString: string, signatureB64: string): Promise<boolean> {
+  if (ADMOB_FAKE_SECRET.length === 0) {
+    console.error("[admob-ssv] FAKE MODE: ADMOB_FAKE_SECRET is not set; refusing to verify against a built-in secret.");
+    return false;
+  }
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",

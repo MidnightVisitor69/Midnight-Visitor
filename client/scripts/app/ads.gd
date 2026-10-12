@@ -95,7 +95,7 @@ static func request_reward(reward_id: String, home: Dictionary, supabase: Node) 
 	result.ssv_event_id = ssv_event_id
 
 	# Fire and forget: the ad SDK shows the ad, user watches/closes,
-	# Google calls our SSV endpoint, which calls ad_reward().
+	# Google calls our SSV endpoint, which grants the reward on the server.
 	# The client just refreshes home when the ad closes.
 	_show_ad_impl.call(reward_id, custom_data, ssv_event_id, Callable(_on_ad_closed).bind(result, supabase))
 
