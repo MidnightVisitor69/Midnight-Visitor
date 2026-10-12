@@ -108,7 +108,7 @@ func test_claim_button_available_today() -> void:
 func test_claim_button_disabled_when_already_claimed() -> void:
 	var t := _tab(_home(1600, true), [_banner()])
 	assert_true(t.claim_button().disabled, "already claimed today")
-	assert_eq(t.claim_button().text, "Claimed - come back tomorrow")
+	assert_eq(t.claim_button().text, "Claimed")
 	t.free()
 
 

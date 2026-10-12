@@ -303,17 +303,19 @@ func _build_top_bar() -> void:
 	_top_bar.name = "TopBar"
 	_top_bar.anchor_right = 1.0
 	_top_bar.offset_bottom = TOP_BAR_HEIGHT
+	_top_bar.add_theme_stylebox_override("panel", Surfaces.panel(1))
 	add_child(_top_bar)
 
 	var row := HBoxContainer.new()
 	row.name = "Row"
-	row.add_theme_constant_override("separation", Tokens.space(&"s8"))
+	row.add_theme_constant_override("separation", Tokens.space(&"s12"))
 	_top_bar.add_child(row)
 	_top_row = row
 
 	_title_label = Label.new()
 	_title_label.name = "Title"
 	_title_label.text = "Waifu Card Collector"
+	_title_label.theme_type_variation = "Title"
 	_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(_title_label)
@@ -321,6 +323,8 @@ func _build_top_bar() -> void:
 	_gem_label = Label.new()
 	_gem_label.name = "Gems"
 	_gem_label.text = "Gems: --"
+	_gem_label.theme_type_variation = "Body"
+	_gem_label.add_theme_color_override("font_color", Tokens.color(&"reward"))
 	_gem_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(_gem_label)
 
@@ -384,6 +388,7 @@ func _build_tab_bar() -> void:
 	_tab_bar.anchor_right = 1.0
 	_tab_bar.anchor_bottom = 1.0
 	_tab_bar.offset_top = -TAB_BAR_HEIGHT
+	_tab_bar.add_theme_stylebox_override("panel", Surfaces.panel(2))
 	add_child(_tab_bar)
 
 	var row := HBoxContainer.new()
@@ -437,13 +442,34 @@ func _build_overlay() -> void:
 	_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(_overlay)
 
+	var scrim := ColorRect.new()
+	scrim.name = "Scrim"
+	scrim.color = Color(Tokens.color(&"bg"), 0.82)
+	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_overlay.add_child(scrim)
+
+	var centre := CenterContainer.new()
+	centre.name = "Centre"
+	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_overlay.add_child(centre)
+
+	var panel := PanelContainer.new()
+	panel.name = "Panel"
+	panel.custom_minimum_size = Vector2(Tokens.space(&"s40") * 7, 0.0)
+	panel.add_theme_stylebox_override("panel", Surfaces.panel(2))
+	centre.add_child(panel)
+
 	var col := VBoxContainer.new()
 	col.name = "Column"
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	_overlay.add_child(col)
+	col.add_theme_constant_override("separation", Tokens.space(&"s16"))
+	panel.add_child(col)
 
 	_status_label = Label.new()
 	_status_label.name = "Status"
+	_status_label.theme_type_variation = "Body"
 	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(_status_label)

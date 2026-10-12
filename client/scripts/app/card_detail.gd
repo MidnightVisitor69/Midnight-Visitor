@@ -212,6 +212,11 @@ func _ensure_built() -> void:
 	close_btn.theme_type_variation = "ButtonGhost"
 	close_btn.focus_mode = Control.FOCUS_NONE
 	close_btn.custom_minimum_size = Vector2(MIN_TAP_DP * 2.0, MIN_TAP_DP)
+	close_btn.add_theme_font_override("font", Tokens.ui_font(500))
+	close_btn.add_theme_font_size_override("font_size", Tokens.font_size(&"body"))
+	close_btn.add_theme_color_override("font_color", Tokens.color(&"text_primary"))
+	close_btn.add_theme_color_override("font_hover_color", Tokens.color(&"text_primary"))
+	close_btn.add_theme_color_override("font_pressed_color", Tokens.color(&"accent"))
 	close_btn.pressed.connect(close)
 	add_child(close_btn)
 	close_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
@@ -249,6 +254,7 @@ func _ensure_built() -> void:
 
 	_panel = PanelContainer.new()
 	_panel.name = "Info"
+	_panel.add_theme_stylebox_override("panel", Surfaces.panel(1))
 	col.add_child(_panel)
 
 	var info := VBoxContainer.new()
@@ -283,7 +289,8 @@ func _ensure_built() -> void:
 	divider.draw.connect(func() -> void:
 		var c := Tokens.color(&"outline")
 		divider.draw_line(Vector2(0.0, divider.size.y * 0.5),
-				Vector2(divider.size.x, divider.size.y * 0.5), c, 1.0))
+				Vector2(divider.size.x, divider.size.y * 0.5), c, 1.0)
+	)
 	info.add_child(divider)
 
 	var stats := HBoxContainer.new()
@@ -304,7 +311,7 @@ func _ensure_built() -> void:
 	hint.name = "TiltHint"
 	hint.theme_type_variation = "Caption"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.text = "Drag the card to catch the light"
+	hint.text = "Drag to catch the light"
 	info.add_child(hint)
 
 

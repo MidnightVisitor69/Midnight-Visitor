@@ -23,7 +23,7 @@ func _init() -> void:
 	add_theme_stylebox_override("panel", Surfaces.panel(2))
 	_handle = Control.new()
 	_handle.name = "GrabHandle"
-	_handle.custom_minimum_size = Vector2(0, 24)
+	_handle.custom_minimum_size = Vector2(0, Tokens.space(&"s24"))
 	_handle.draw.connect(_draw_handle)
 	_handle.gui_input.connect(_on_handle_input)
 	add_child(_handle)
@@ -43,14 +43,14 @@ func _draw_handle() -> void:
 	var y := _handle.size.y * 0.5
 	var from := Vector2(_handle.size.x * 0.5 - w * 0.5, y)
 	var to := Vector2(_handle.size.x * 0.5 + w * 0.5, y)
-	_handle.draw_line(from, to, Tokens.color(&"outline"), 4.0, true)
+	_handle.draw_line(from, to, Tokens.color(&"outline"), Tokens.space(&"s4"), true)
 
 
 func _on_handle_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			_press_at = event.position
-		elif _press_at.distance_to(event.position) < 16.0:
+		elif _press_at.distance_to(event.position) < Tokens.space(&"s16"):
 			close()
 	elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
 		# Swipe down: mostly-vertical, past the threshold -> close.

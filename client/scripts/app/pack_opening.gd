@@ -39,8 +39,6 @@ const REVEAL_SOUNDS := {
 const RARITIES_GLOW := ["epic", "legendary"]
 const MIN_TAP_DP := 48.0
 
-const BG_COLOR := Color(0.031, 0.047, 0.118)
-
 # --- state ---------------------------------------------------------------------
 ## Which beat of the moment we are in. See RevealPlan for the string contract.
 var step := RevealPlan.STEP_CLOSED
@@ -384,7 +382,7 @@ func _reset_beat() -> void:
 		set(p, 0.0)
 	if _pack_rip_mat() != null:
 		_pack_rip_mat().set_shader_parameter("inner_light", _tease)
-	_glow_layer.modulate = Color(_tease, 0.0)
+	_glow_layer.modulate = Color(_tease, 0.0)  # _tease from Tokens.color rarity
 	if _rays_mat() != null:
 		_rays_mat().set_shader_parameter("ray_color", _tease)
 
@@ -401,7 +399,7 @@ func _prepare_beat() -> void:
 	_pity_tag.text = "Pity!"
 	for p in ["_card_out", "_flip", "_glow", "_flash", "_rays", "_dim"]:
 		set(p, 0.0)
-	_glow_layer.modulate = Color(_tease, 0.0)
+	_glow_layer.modulate = Color(_tease, 0.0)  # _tease from Tokens.color rarity
 	if _rays_mat() != null:
 		_rays_mat().set_shader_parameter("ray_color", _tease)
 	if _counter != null:
@@ -560,7 +558,7 @@ func _sync_visual() -> void:
 	var burst_scale := 1.0 + _burst * 0.22
 	_backlight.size = _pack_size * burst_scale
 	_backlight.position = _pack_center - _backlight.size * 0.5
-	_backlight.modulate = Color(_tease, _burst * 0.55)
+	_backlight.modulate = Color(_tease, _burst * 0.55)  # _tease from Tokens.color rarity
 	_backlight.visible = _burst > 0.001 and step != RevealPlan.STEP_SUMMARY
 
 	# The torn strip, falling away with a little rotation.
@@ -570,14 +568,14 @@ func _sync_visual() -> void:
 	_strip_rect.position = _pack_center - Vector2(_pack_size.x * 0.5, _pack_size.y * 0.5) \
 			+ Vector2(shake * 0.35, _strip * _pack_size.y * Motion.PACK_STRIP_FALL_FRACTION)
 	_strip_rect.rotation = deg_to_rad(-_strip * Motion.PACK_STRIP_TIP_DEG)
-	_strip_rect.modulate = Color(1.0, 1.0, 1.0, 1.0 - _strip)
+	_strip_rect.modulate = Color(Tokens.color(&"text_primary"), 1.0 - _strip)
 	var strip_mat := _strip_rect.material as ShaderMaterial
 	if strip_mat != null:
 		strip_mat.set_shader_parameter("slice", Motion.PACK_STRIP_FRACTION)
 		strip_mat.set_shader_parameter("fall", _strip)
 
 	# Screen dim: only the legendary build darkens the room.
-	_dim_layer.color = Color(0.0, 0.0, 0.04, _dim * Motion.DIM_ALPHA)
+	_dim_layer.color = Color(Tokens.color(&"bg"), _dim * Motion.DIM_ALPHA)
 
 	# The reveal stage.
 	var revealing := step == RevealPlan.STEP_REVEALING
@@ -599,7 +597,7 @@ func _sync_visual() -> void:
 		_glow_layer.visible = _glow > 0.001
 		_glow_layer.size = _card_size * Motion.GLOW_SCALE
 		_glow_layer.position = _card_center - _glow_layer.size * 0.5
-		_glow_layer.modulate = Color(_tease, _glow * Motion.GLOW_ALPHA)
+		_glow_layer.modulate = Color(_tease, _glow * Motion.GLOW_ALPHA)  # _tease from Tokens.color rarity
 		_rays_rect.visible = _rays > 0.001
 		_rays_rect.position = _card_center - _rays_rect.size * 0.5
 		var rays_mat := _rays_mat()
@@ -608,7 +606,7 @@ func _sync_visual() -> void:
 		_flash_rect.visible = _flash > 0.001
 		_flash_rect.size = _card_size
 		_flash_rect.position = _card_center - _card_size * 0.5
-		_flash_rect.modulate = Color(1.0, 1.0, 1.0, _flash)
+		_flash_rect.modulate = Color(Tokens.color(&"text_primary"), _flash)
 		_pity_tag.position = _card_center - Vector2(_pity_tag.size.x * 0.5,
 				_card_size.y * 0.5 + 40.0)
 		_counter.position = _card_center + Vector2(-_counter.size.x * 0.5,
@@ -829,7 +827,7 @@ func _ensure_built() -> void:
 
 	var bg := ColorRect.new()
 	bg.name = "Backdrop"
-	bg.color = BG_COLOR
+	bg.color = Tokens.color(&"bg")
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
@@ -837,7 +835,7 @@ func _ensure_built() -> void:
 	_dim_layer = ColorRect.new()
 	_dim_layer.name = "Dim"
 	_dim_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_dim_layer.color = Color(0.0, 0.0, 0.04, 0.0)
+	_dim_layer.color = Color(Tokens.color(&"bg"), 0.0)
 	_dim_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_dim_layer)
 
@@ -857,12 +855,17 @@ func _ensure_built() -> void:
 	_skip_button.text = "Skip"
 	_skip_button.custom_minimum_size = Vector2(MIN_TAP_DP * 2.0, MIN_TAP_DP)
 	_skip_button.focus_mode = Control.FOCUS_NONE
+	_skip_button.add_theme_font_override("font", Tokens.ui_font(500))
+	_skip_button.add_theme_font_size_override("font_size", Tokens.font_size(&"label"))
+	_skip_button.add_theme_color_override("font_color", Tokens.color(&"text_primary"))
+	_skip_button.add_theme_color_override("font_hover_color", Tokens.color(&"text_primary"))
+	_skip_button.add_theme_color_override("font_pressed_color", Tokens.color(&"accent"))
 	_skip_button.pressed.connect(_skip)
 	_skip_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_skip_button.offset_left = -MIN_TAP_DP * 2.0 - 16.0
-	_skip_button.offset_top = -MIN_TAP_DP - 24.0
-	_skip_button.offset_right = -16.0
-	_skip_button.offset_bottom = -24.0
+	_skip_button.offset_left = -MIN_TAP_DP * 2.0 - Tokens.space(&"s16")
+	_skip_button.offset_top = -MIN_TAP_DP - Tokens.space(&"s24")
+	_skip_button.offset_right = -Tokens.space(&"s16")
+	_skip_button.offset_bottom = -Tokens.space(&"s24")
 	add_child(_skip_button)
 
 	resized.connect(_layout)
@@ -917,10 +920,10 @@ func _build_stage() -> void:
 	_card_back.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_card_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var back_style := StyleBoxFlat.new()
-	back_style.bg_color = Color(0.086, 0.106, 0.243)
-	back_style.border_color = Color(0.52, 0.24, 0.62)
+	back_style.bg_color = Tokens.color(&"surface_1")
+	back_style.border_color = Tokens.color(&"outline")
 	back_style.set_border_width_all(4)
-	back_style.set_corner_radius_all(16)
+	back_style.set_corner_radius_all(Tokens.radius(&"card"))
 	# A plain pattern on the back, not art: the front is the reward.
 	back_style.draw_center = true
 	_card_back.add_theme_stylebox_override("panel", back_style)
@@ -938,7 +941,7 @@ func _build_stage() -> void:
 
 	_flash_rect = ColorRect.new()
 	_flash_rect.name = "Flash"
-	_flash_rect.color = Color(1.0, 1.0, 1.0, 1.0)
+	_flash_rect.color = Color(Tokens.color(&"text_primary"), 1.0)
 	_flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_flash_rect.visible = false
 	add_child(_flash_rect)
@@ -946,7 +949,7 @@ func _build_stage() -> void:
 	_pity_tag = Label.new()
 	_pity_tag.name = "PityTag"
 	_pity_tag.text = "Pity!"
-	_pity_tag.add_theme_color_override("font_color", Color(1.0, 0.86, 0.4))
+	_pity_tag.add_theme_color_override("font_color", Tokens.color(&"reward"))
 	_pity_tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_pity_tag.visible = false
 	add_child(_pity_tag)
@@ -955,6 +958,9 @@ func _build_stage() -> void:
 	_counter.name = "Counter"
 	_counter.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_counter.visible = false
+	_counter.add_theme_font_override("font", Tokens.ui_font(500))
+	_counter.add_theme_font_size_override("font_size", Tokens.font_size(&"label"))
+	_counter.add_theme_color_override("font_color", Tokens.color(&"text_secondary"))
 	add_child(_counter)
 
 

@@ -117,7 +117,7 @@ func _on_claim_pressed() -> void:
 	_claim_button.disabled = true
 	var res: Dictionary = await gs.claim_daily()
 	if not bool(res.get("ok", false)):
-		_show_error(str(res.get("error", "Daily claim failed.")))
+		_show_error(str(res.get("error", "Daily claim failed")))
 		_refresh_daily()
 		return
 	var data: Dictionary = res.get("data", {})
@@ -141,12 +141,12 @@ func _refresh_daily() -> void:
 	if _streak_label == null:
 		return
 	var streak: Dictionary = _home.get("streak", {})
-	_streak_label.text = "Streak: %d days · Freezes: %d" % [
+	_streak_label.text = "%d day streak · %d freeze(s)" % [
 		int(streak.get("current", 0)), int(streak.get("freezes", 0)),
 	]
 	var claimed := bool(streak.get("claimed_today", false))
 	_claim_button.disabled = claimed
-	_claim_button.text = "Claimed - come back tomorrow" if claimed else "Claim"
+	_claim_button.text = "Claimed" if claimed else "Claim"
 
 
 # --- pack panel -------------------------------------------------------------
@@ -169,7 +169,7 @@ func _refresh_pack() -> void:
 		_pack_label.text = "No banner"
 		_open_single.disabled = true
 		_open_ten.disabled = true
-		_set_hint("No banner available.")
+		_set_hint("No banner available")
 		return
 	var b := _current_banner()
 	_banner_label.text = str(b.get("name", ""))
@@ -177,8 +177,8 @@ func _refresh_pack() -> void:
 	var gems := int(_home.get("gems", 0))
 	var single := int(b.get("cost_single", 0))
 	var ten := int(b.get("cost_ten", 0))
-	_open_single.text = "Open 1 - %d gems" % single
-	_open_ten.text = "Open 10 - %d gems" % ten
+	_open_single.text = "Open 1 · %d gems" % single
+	_open_ten.text = "Open 10 · %d gems" % ten
 	_open_single.disabled = _pulling or gems < single
 	_open_ten.disabled = _pulling or gems < ten
 	_open_single.tooltip_text = _shortfall("Open 1", single, gems)
@@ -186,9 +186,9 @@ func _refresh_pack() -> void:
 	if _pulling:
 		_set_hint("")
 	elif gems < single:
-		_set_hint("Not enough gems: need %d, have %d." % [single, gems])
+		_set_hint("Need %d gems, have %d" % [single, gems])
 	elif gems < ten:
-		_set_hint("Open 10 needs %d gems, have %d." % [ten, gems])
+		_set_hint("Open 10 needs %d gems, have %d" % [ten, gems])
 	else:
 		_set_hint("")
 
@@ -197,7 +197,7 @@ func _refresh_pack() -> void:
 func _shortfall(_action: String, cost: int, gems: int) -> String:
 	if gems >= cost:
 		return ""
-	return "Not enough gems: %d needed, %d available." % [cost, gems]
+	return "Need %d gems, have %d" % [cost, gems]
 
 
 func _set_hint(text: String) -> void:
@@ -263,7 +263,7 @@ func _start_pull(count: int) -> void:
 	_pulling = false
 	_refresh_pack()
 	if not bool(res.get("ok", false)):
-		_show_error(str(res.get("error", "Pull failed.")))
+		_show_error(str(res.get("error", "Pull failed")))
 		return
 	if not has_listener:
 		_result_label.text = PackMath.cards_summary((res.get("data", {}) as Dictionary).get("cards", []))
@@ -276,6 +276,7 @@ func _start_pull(count: int) -> void:
 func _show_error(message: String) -> void:
 	_error_label.text = message
 	_error_label.visible = true
+	_error_label.add_theme_color_override("font_color", Tokens.color(&"danger"))
 
 
 # --- confirm before spending (D-003) -----------------------------------------
@@ -285,7 +286,7 @@ func _show_error(message: String) -> void:
 func _show_spend_confirm(cost: int) -> void:
 	if _confirm_overlay == null:
 		_build_spend_confirm()
-	_confirm_label.text = "Open for %d gems?" % cost
+	_confirm_label.text = "Spend %d gems?" % cost
 	_confirm_overlay.visible = true
 	_confirm_overlay.move_to_front()
 
@@ -356,7 +357,7 @@ func _refresh_info() -> void:
 	if _odds_label == null:
 		return
 	if _banners.is_empty():
-		_odds_label.text = "Odds unavailable."
+		_odds_label.text = "Odds unavailable"
 		_pity_label.text = ""
 		_holo_label.text = ""
 		return
@@ -471,12 +472,12 @@ func _ensure_built() -> void:
 	margin.name = "Margin"
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "top", "right", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 16)
+		margin.add_theme_constant_override("margin_" + side, Tokens.space(&"s16"))
 	add_child(margin)
 
 	var col := VBoxContainer.new()
 	col.name = "Column"
-	col.add_theme_constant_override("separation", 12)
+	col.add_theme_constant_override("separation", Tokens.space(&"s12"))
 	margin.add_child(col)
 
 	_build_faucet(col)
@@ -501,6 +502,11 @@ func _build_faucet(parent: Control) -> void:
 	_faucet_button.text = ALPHA_BUTTON_TEXT
 	_faucet_button.flat = true
 	_faucet_button.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
+	_faucet_button.add_theme_font_override("font", Tokens.ui_font(500))
+	_faucet_button.add_theme_font_size_override("font_size", Tokens.font_size(&"label"))
+	_faucet_button.add_theme_color_override("font_color", Tokens.color(&"accent_secondary"))
+	_faucet_button.add_theme_color_override("font_hover_color", Tokens.color(&"accent_secondary"))
+	_faucet_button.add_theme_color_override("font_pressed_color", Tokens.color(&"accent"))
 	_faucet_button.pressed.connect(_on_alpha_pressed)
 	_faucet_row.add_child(_faucet_button)
 
@@ -508,23 +514,27 @@ func _build_faucet(parent: Control) -> void:
 func _build_daily(parent: Control) -> void:
 	var strip := PanelContainer.new()
 	strip.name = "DailyStrip"
+	strip.add_theme_stylebox_override("panel", Surfaces.panel(1))
 	parent.add_child(strip)
 
 	var row := HBoxContainer.new()
 	row.name = "Row"
-	row.add_theme_constant_override("separation", 12)
+	row.add_theme_constant_override("separation", Tokens.space(&"s12"))
 	strip.add_child(row)
 
 	_streak_label = Label.new()
 	_streak_label.name = "StreakLabel"
 	_streak_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_streak_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_streak_label.theme_type_variation = "Body"
 	row.add_child(_streak_label)
 
 	_reward_label = Label.new()
 	_reward_label.name = "RewardLabel"
 	_reward_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_reward_label.visible = false
+	_reward_label.theme_type_variation = "Body"
+	_reward_label.add_theme_color_override("font_color", Tokens.color(&"reward"))
 	row.add_child(_reward_label)
 
 	_claim_button = Button.new()
@@ -538,21 +548,29 @@ func _build_pack(parent: Control) -> void:
 	var panel := PanelContainer.new()
 	panel.name = "PackPanel"
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", Surfaces.panel(2))
 	parent.add_child(panel)
 
 	var col := VBoxContainer.new()
 	col.name = "Column"
-	col.add_theme_constant_override("separation", 12)
+	col.add_theme_constant_override("separation", Tokens.space(&"s16"))
 	panel.add_child(col)
 
 	var banner_row := HBoxContainer.new()
 	banner_row.name = "BannerRow"
+	banner_row.add_theme_constant_override("separation", Tokens.space(&"s8"))
 	col.add_child(banner_row)
 
 	_prev_button = Button.new()
 	_prev_button.name = "PrevBanner"
 	_prev_button.text = "<"
 	_prev_button.custom_minimum_size = Vector2(MIN_TAP_DP, MIN_TAP_DP)
+	_prev_button.theme_type_variation = "ButtonGhost"
+	_prev_button.add_theme_font_override("font", Tokens.ui_font(600))
+	_prev_button.add_theme_font_size_override("font_size", Tokens.font_size(&"title"))
+	_prev_button.add_theme_color_override("font_color", Tokens.color(&"text_secondary"))
+	_prev_button.add_theme_color_override("font_hover_color", Tokens.color(&"text_primary"))
+	_prev_button.add_theme_color_override("font_pressed_color", Tokens.color(&"accent"))
 	_prev_button.pressed.connect(_cycle_banner.bind(-1))
 	banner_row.add_child(_prev_button)
 
@@ -561,12 +579,19 @@ func _build_pack(parent: Control) -> void:
 	_banner_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_banner_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_banner_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_banner_label.theme_type_variation = "Title"
 	banner_row.add_child(_banner_label)
 
 	_next_button = Button.new()
 	_next_button.name = "NextBanner"
 	_next_button.text = ">"
 	_next_button.custom_minimum_size = Vector2(MIN_TAP_DP, MIN_TAP_DP)
+	_next_button.theme_type_variation = "ButtonGhost"
+	_next_button.add_theme_font_override("font", Tokens.ui_font(600))
+	_next_button.add_theme_font_size_override("font_size", Tokens.font_size(&"title"))
+	_next_button.add_theme_color_override("font_color", Tokens.color(&"text_secondary"))
+	_next_button.add_theme_color_override("font_hover_color", Tokens.color(&"text_primary"))
+	_next_button.add_theme_color_override("font_pressed_color", Tokens.color(&"accent"))
 	_next_button.pressed.connect(_cycle_banner.bind(1))
 	banner_row.add_child(_next_button)
 
@@ -576,6 +601,7 @@ func _build_pack(parent: Control) -> void:
 	art.name = "PackArt"
 	art.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	art.custom_minimum_size = Vector2(0.0, 320.0)
+	art.add_theme_stylebox_override("panel", Surfaces.panel(1))
 	col.add_child(art)
 
 	var centre := CenterContainer.new()
@@ -586,6 +612,7 @@ func _build_pack(parent: Control) -> void:
 	_pack_label.name = "PackName"
 	_pack_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_pack_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_pack_label.theme_type_variation = "Display"
 	# Without a min width the centered label collapses and wraps mid-word; the
 	# art panel is far wider than this, so it only affects the placeholder text.
 	_pack_label.custom_minimum_size = Vector2(240.0, 0.0)
@@ -594,7 +621,7 @@ func _build_pack(parent: Control) -> void:
 	# The two CTAs sit after the art, i.e. in the bottom third of the panel.
 	var buttons := HBoxContainer.new()
 	buttons.name = "OpenButtons"
-	buttons.add_theme_constant_override("separation", 12)
+	buttons.add_theme_constant_override("separation", Tokens.space(&"s12"))
 	col.add_child(buttons)
 
 	_open_single = Button.new()
@@ -615,43 +642,53 @@ func _build_pack(parent: Control) -> void:
 	_hint_label.name = "Hint"
 	_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_hint_label.visible = false
+	_hint_label.theme_type_variation = "Caption"
+	_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(_hint_label)
 
 	_error_label = Label.new()
 	_error_label.name = "Error"
 	_error_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_error_label.visible = false
+	_error_label.theme_type_variation = "Body"
+	_error_label.add_theme_color_override("font_color", Tokens.color(&"danger"))
+	_error_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(_error_label)
 
 	_result_label = Label.new()
 	_result_label.name = "Result"
 	_result_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_result_label.visible = false
+	_result_label.theme_type_variation = "Body"
+	_result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(_result_label)
 
 
 func _build_info(parent: Control) -> void:
 	_info_row = VBoxContainer.new()
 	_info_row.name = "InfoRow"
-	_info_row.add_theme_constant_override("separation", 4)
+	_info_row.add_theme_constant_override("separation", Tokens.space(&"s8"))
 	parent.add_child(_info_row)
 
 	# Always visible, never behind a toggle: Play requires odds up front.
 	_odds_label = Label.new()
 	_odds_label.name = "Odds"
 	_odds_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_odds_label.theme_type_variation = "Caption"
+	_odds_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_info_row.add_child(_odds_label)
 
 	_pity_label = Label.new()
 	_pity_label.name = "Pity"
 	_pity_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_pity_label.theme_type_variation = "Caption"
+	_pity_label.add_theme_color_override("font_color", Tokens.color(&"reward"))
+	_pity_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_info_row.add_child(_pity_label)
 
-	_holo_toggle = Button.new()
+	_holo_toggle = Chip.new()
 	_holo_toggle.name = "HoloToggle"
 	_holo_toggle.text = "Holo odds"
-	_holo_toggle.flat = true
-	_holo_toggle.toggle_mode = true
 	_holo_toggle.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 	_holo_toggle.toggled.connect(_on_holo_toggled)
 	_info_row.add_child(_holo_toggle)
@@ -660,6 +697,8 @@ func _build_info(parent: Control) -> void:
 	_holo_label.name = "HoloOdds"
 	_holo_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_holo_label.visible = false
+	_holo_label.theme_type_variation = "Caption"
+	_holo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_info_row.add_child(_holo_label)
 
 
