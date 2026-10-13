@@ -51,7 +51,10 @@ func test_parse_banners_rarity_odds_sum_to_one() -> void:
 		"cost_ten": 1600,
 		"ends_at": "2027-01-01T00:00:00Z",
 		"odds": {"common": 0.7, "rare": 0.2, "epic": 0.08, "legendary": 0.02},
-		"pity": {"epic_every": 10, "legendary_at": 90},
+		"pity": {"ramp": {
+			"epic": {"base": 0.05, "step": 0.004, "cap": 0.25},
+			"legendary": {"base": 0.01, "step": 0.0015, "cap": 0.10},
+		}},
 		"holo_odds": {"none": 0.85, "silver": 0.08, "rainbow": 0.04,
 			"gold": 0.02, "prism": 0.008, "galaxy": 0.002},
 	}])
@@ -60,12 +63,33 @@ func test_parse_banners_rarity_odds_sum_to_one() -> void:
 	assert_eq(b["id"], "standard")
 	assert_eq(b["cost_single"], 160)
 	assert_eq(b["cost_ten"], 1600)
-	assert_eq(b["pity"]["epic_every"], 10)
-	assert_eq(b["pity"]["legendary_at"], 90)
+	assert_almost(b["pity"]["ramp"]["epic"]["base"], 0.05, 0.000001, "epic base")
+	assert_almost(b["pity"]["ramp"]["epic"]["step"], 0.004, 0.000001, "epic step")
+	assert_almost(b["pity"]["ramp"]["epic"]["cap"], 0.25, 0.000001, "epic cap")
+	assert_almost(b["pity"]["ramp"]["legendary"]["base"], 0.01, 0.000001, "legendary base")
 	var total := 0.0
 	for key in ApiScript.ODDS_KEYS:
 		total += float(b["odds"][key])
 	assert_almost(total, 1.0, 0.0001, "rarity odds must sum to 1")
+
+
+## T-013: a banner with no ramp on the wire gets an empty ramp, never zeroed
+## tiers the UI could mistake for real odds.
+func test_parse_banners_never_invents_ramp_numbers() -> void:
+	assert_eq(ApiScript.parse_banners([{"id": "standard"}])[0]["pity"]["ramp"], {})
+
+
+func test_parse_banners_ramp_keeps_only_known_tiers() -> void:
+	var banners := ApiScript.parse_banners([{
+		"id": "standard",
+		"pity": {"ramp": {
+			"epic": {"base": 0.05, "step": 0.004, "cap": 0.25},
+			"mythic": {"base": 0.5, "step": 0.5, "cap": 0.9},
+		}},
+	}])
+	var ramp: Dictionary = banners[0]["pity"]["ramp"]
+	assert_true(ramp.has("epic"), "epic parsed")
+	assert_true(not ramp.has("mythic"), "unknown tier dropped, not rendered")
 
 
 func test_parse_banners_holo_odds_sum_to_one() -> void:

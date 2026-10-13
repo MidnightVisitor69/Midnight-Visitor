@@ -18,6 +18,12 @@ const HOLO_LABELS := {
 	"prism": "Prism",
 	"galaxy": "Galaxy",
 }
+## Tiers whose per-pull odds climb (T-013). Names only: the numbers are the server's.
+const RAMP_TIERS: Array[String] = ["epic", "legendary"]
+const TIER_LABELS := {
+	"epic": "Epic",
+	"legendary": "Legendary",
+}
 
 
 ## Server sends fractions (0.015); players need "1.5%", one decimal.
@@ -25,24 +31,35 @@ static func format_percent(fraction: float) -> String:
 	return "%.1f%%" % (fraction * 100.0)
 
 
-## Pulls left until a pity guarantee fires. target_at is the pull number that
-## triggers it, since is the pulls already done without a hit: 10/0 -> 10,
-## 10/9 -> 1. Never negative: a fired pity restarts at the next threshold.
-static func pulls_until(target_at: int, since: int) -> int:
-	return maxi(target_at - since, 0)
+## Soft-pity odds for one tier: min(base + step * since, cap). base/step/cap come
+## from the server's banner JSON; only the arithmetic is ours (T-013).
+static func ramp_odds(ramp: Dictionary, since: int) -> float:
+	var base := float(ramp.get("base", 0.0))
+	var step := float(ramp.get("step", 0.0))
+	var cap := float(ramp.get("cap", 0.0))
+	return minf(base + step * float(maxi(since, 0)), cap)
 
 
-## "in N" half of a pity line; the caller adds the noun.
-static func guarantee_phrase(target_at: int, since: int) -> String:
-	return "in %d" % pulls_until(target_at, since)
-
-
-## Both pity guarantees from home.pity and the banner's rules.
-static func pity_text(pity: Dictionary, rules: Dictionary) -> String:
-	return "Epic+ guaranteed %s pulls · Legendary guaranteed %s pulls" % [
-		guarantee_phrase(int(rules.get("epic_every", 0)), int(pity.get("since_epic", 0))),
-		guarantee_phrase(int(rules.get("legendary_at", 0)), int(pity.get("since_legendary", 0))),
-	]
+## The pull screen's pity line, in plain language. Every number comes from the
+## server: the ramp table (base/step/cap) and the player's counters. A banner
+## with no ramp data says so rather than guessing.
+static func pity_text(home_pity: Dictionary, banner_pity: Dictionary) -> String:
+	var raw: Variant = banner_pity.get("ramp")
+	var ramp: Dictionary = raw if raw is Dictionary else {}
+	var parts: Array[String] = []
+	for tier in RAMP_TIERS:
+		if not (ramp.get(tier) is Dictionary):
+			continue
+		var r: Dictionary = ramp[tier]
+		var since := int(home_pity.get("since_" + tier, 0))
+		parts.append("%s odds rise every pull since your last %s (%s now, up to %s)" % [
+			TIER_LABELS[tier], tier,
+			format_percent(ramp_odds(r, since)),
+			format_percent(float(r.get("cap", 0.0))),
+		])
+	if parts.is_empty():
+		return "Pity odds unavailable."
+	return " · ".join(parts)
 
 
 ## "Common 70.0% · Rare 20.0% · ..." for any odds map; keys keep server order.

@@ -946,7 +946,11 @@ static func _demo_banners() -> Array:
 		"cost_single": 160,
 		"cost_ten": 1600,
 		"odds": {"common": 0.70, "rare": 0.20, "epic": 0.08, "legendary": 0.02},
-		"pity": {"epic_every": 10, "legendary_at": 80},
+		# Preview payload only: the real ramp comes from the server (T-013).
+		"pity": {"ramp": {
+			"epic": {"base": 0.05, "step": 0.004, "cap": 0.25},
+			"legendary": {"base": 0.01, "step": 0.0015, "cap": 0.10},
+		}},
 		"holo_odds": {"none": 0.85, "silver": 0.08, "rainbow": 0.04,
 			"gold": 0.02, "prism": 0.008, "galaxy": 0.002},
 	}]
