@@ -49,3 +49,8 @@ test_import.mjs
 
 # Recovery agent registry (append-only event log, local coordination state)
 pipeline/agents/
+
+# Lane runtime state (ladder offsets, spend flags)
+pipeline/.model-offset*
+pipeline/NO_PAID
+pipeline/.*.paused
