@@ -416,7 +416,7 @@ func test_drop_rates_page_lists_odds_pity_and_holo() -> void:
 	assert_true(screen.overlay_visible(), "the odds page opens")
 	var body: String = screen._overlay_body.text
 	assert_true(body.find("Common 70.0%") >= 0, "rarity odds")
-	assert_true(body.find("Epic+ guaranteed") >= 0, "pity")
+	assert_true(body.find("Epic odds rise every pull") >= 0, "pity ramp copy")
 	assert_true(body.find("Galaxy 0.2%") >= 0, "holo odds")
 	assert_true(body.find("Pity carries across every banner") >= 0, "the pity rule")
 	_free_screen(screen)

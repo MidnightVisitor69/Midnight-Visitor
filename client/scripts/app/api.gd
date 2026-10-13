@@ -11,6 +11,8 @@ extends RefCounted
 const ODDS_KEYS: Array[String] = ["common", "rare", "epic", "legendary"]
 ## Holo odds keys, matching HoloVariants.VARIANTS / the DB enum.
 const HOLO_KEYS: Array[String] = ["none", "silver", "rainbow", "gold", "prism", "galaxy"]
+## Tiers whose per-pull odds climb with pulls since the last hit (T-013).
+const RAMP_TIERS: Array[String] = ["epic", "legendary"]
 
 const COLLECTION_QUERY := "select=id,card_id,variant,obtained_at,cards(name,rarity,set_id,art_path)&order=obtained_at.desc"
 
@@ -121,8 +123,9 @@ static func parse_banners(a: Variant) -> Array:
 			"ends_at": str(b.get("ends_at", "")),
 			"odds": _float_map(b.get("odds"), ODDS_KEYS),
 			"pity": {
-				"epic_every": int(pity.get("epic_every", 0)),
-				"legendary_at": int(pity.get("legendary_at", 0)),
+				# T-013: soft pity ramp. base/step/cap are server numbers; the
+				# client only formats them (no odds constants client-side).
+				"ramp": _ramp_map(pity.get("ramp")),
 			},
 			"holo_odds": _float_map(b.get("holo_odds"), HOLO_KEYS),
 		})
@@ -266,4 +269,21 @@ static func _float_map(v: Variant, keys: Array[String]) -> Dictionary:
 	var out := {}
 	for key in keys:
 		out[key] = float(src.get(key, 0.0))
+	return out
+
+
+## Server ramp table -> {tier: {base, step, cap}}. A tier the server did not
+## send stays absent, so the UI can say "unavailable" instead of inventing odds.
+static func _ramp_map(v: Variant) -> Dictionary:
+	var src := _dict(v)
+	var out := {}
+	for tier in RAMP_TIERS:
+		if not (src.get(tier) is Dictionary):
+			continue
+		var r: Dictionary = src[tier]
+		out[tier] = {
+			"base": float(r.get("base", 0.0)),
+			"step": float(r.get("step", 0.0)),
+			"cap": float(r.get("cap", 0.0)),
+		}
 	return out

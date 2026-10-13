@@ -16,7 +16,10 @@ const BANNER := {
 	"cost_single": 160,
 	"cost_ten": 1600,
 	"odds": {"common": 0.70, "rare": 0.20, "epic": 0.08, "legendary": 0.02},
-	"pity": {"epic_every": 10, "legendary_at": 80},
+	"pity": {"ramp": {
+		"epic": {"base": 0.05, "step": 0.004, "cap": 0.25},
+		"legendary": {"base": 0.01, "step": 0.0015, "cap": 0.10},
+	}},
 	"holo_odds": {"none": 0.85, "silver": 0.08, "rainbow": 0.04,
 		"gold": 0.02, "prism": 0.008, "galaxy": 0.002},
 }
@@ -44,16 +47,70 @@ func _tab(home: Dictionary, banners: Array) -> HomeTabScript:
 
 # --- PackMath -----------------------------------------------------------------
 
-func test_pity_counts_down_to_the_guarantee() -> void:
-	assert_eq(PackMathScript.pulls_until(10, 0), 10, "fresh epic pity")
-	assert_eq(PackMathScript.pulls_until(10, 9), 1, "one pull left to epic+")
-	assert_eq(PackMathScript.pulls_until(80, 79), 1, "one pull left to legendary")
+func test_ramp_odds_at_base() -> void:
+	var ramp := {"base": 0.05, "step": 0.004, "cap": 0.25}
+	assert_almost(PackMathScript.ramp_odds(ramp, 0), 0.05, 0.000001, "zero pulls -> base")
 
 
-func test_pity_phrase_reads_in_n() -> void:
-	assert_eq(PackMathScript.guarantee_phrase(10, 0), "in 10", "since_epic 0")
-	assert_eq(PackMathScript.guarantee_phrase(10, 9), "in 1", "since_epic 9")
-	assert_eq(PackMathScript.guarantee_phrase(80, 79), "in 1", "since_legendary 79")
+func test_ramp_odds_climb_with_pity() -> void:
+	var ramp := {"base": 0.05, "step": 0.004, "cap": 0.25}
+	assert_almost(PackMathScript.ramp_odds(ramp, 10), 0.09, 0.000001, "10 pulls -> 9%")
+	assert_true(PackMathScript.ramp_odds(ramp, 10) > PackMathScript.ramp_odds(ramp, 0),
+			"odds must climb with pity")
+
+
+func test_ramp_odds_cap_at_max() -> void:
+	var ramp := {"base": 0.05, "step": 0.004, "cap": 0.25}
+	assert_almost(PackMathScript.ramp_odds(ramp, 100000), 0.25, 0.000001, "odds cap")
+
+
+func test_ramp_odds_clamp_a_negative_counter() -> void:
+	var ramp := {"base": 0.05, "step": 0.004, "cap": 0.25}
+	assert_almost(PackMathScript.ramp_odds(ramp, -3), 0.05, 0.000001, "negative since -> base")
+
+
+func test_pity_text_reads_the_ramp_in_plain_language() -> void:
+	var text := PackMathScript.pity_text(
+		{"since_epic": 10, "since_legendary": 0},
+		{"ramp": {
+			"epic": {"base": 0.05, "step": 0.004, "cap": 0.25},
+			"legendary": {"base": 0.01, "step": 0.0015, "cap": 0.10},
+		}})
+	assert_true(text.find("rise every pull since your last epic") >= 0, "plain language")
+	assert_true(text.find("9.0% now") >= 0, "epic odds computed from server numbers")
+	assert_true(text.find("up to 25.0%") >= 0, "epic cap from the server")
+	assert_true(text.find("1.0% now") >= 0, "legendary odds")
+	assert_true(text.find("up to 10.0%") >= 0, "legendary cap")
+
+
+## Guard: the numbers are the server's. A client that hardcoded the ramp would
+## ignore this injected payload.
+func test_pity_text_follows_the_server_not_a_client_constant() -> void:
+	var text := PackMathScript.pity_text(
+		{"since_epic": 0, "since_legendary": 0},
+		{"ramp": {
+			"epic": {"base": 0.10, "step": 0.02, "cap": 0.40},
+			"legendary": {"base": 0.02, "step": 0.01, "cap": 0.20},
+		}})
+	assert_true(text.find("10.0% now") >= 0, "epic base is the server's 10%")
+	assert_true(text.find("up to 40.0%") >= 0, "epic cap is the server's 40%")
+	assert_true(text.find("up to 20.0%") >= 0, "legendary cap is the server's 20%")
+
+
+func test_missing_ramp_says_unavailable_rather_than_guessing() -> void:
+	assert_eq(PackMathScript.pity_text({"since_epic": 3}, {}), "Pity odds unavailable.")
+
+
+## Guard: pack_math.gd formats odds; a ramp step constant appearing there means
+## the client started duplicating the server's tuning (T-013).
+func test_pack_math_hardcodes_no_ramp_numbers() -> void:
+	var f := FileAccess.open("res://scripts/app/pack_math.gd", FileAccess.READ)
+	assert_true(f != null, "pack_math.gd must be readable")
+	if f == null:
+		return
+	var src := f.get_as_text()
+	for needle in ["0.004", "0.0015"]:
+		assert_true(src.find(needle) < 0, "client must not hardcode ramp step " + needle)
 
 
 func test_percent_format_has_one_decimal() -> void:
@@ -134,8 +191,16 @@ func test_odds_and_pity_are_visible_by_default() -> void:
 	assert_true(t.odds_visible(), "odds row must be visible, not behind a toggle")
 	assert_true(t.odds_text().find("Legendary") >= 0, "odds name every rarity")
 	assert_true(t.odds_text().find("%") >= 0, "odds are percentages")
-	assert_true(t.pity_text().find("Epic+") >= 0, "epic pity shown")
-	assert_true(t.pity_text().find("in 80") >= 0, "legendary countdown shown")
+	assert_true(t.pity_text().find("rise every pull") >= 0, "ramp pity shown in plain language")
+	assert_true(t.pity_text().find("25.0%") >= 0, "epic ramp cap shown")
+	t.free()
+
+
+func test_home_tab_says_pity_odds_unavailable_without_a_ramp() -> void:
+	var banner := _banner()
+	banner["pity"] = {}
+	var t := _tab(_home(), [banner])
+	assert_eq(t.pity_text(), "Pity odds unavailable.")
 	t.free()
 
 
