@@ -115,6 +115,13 @@ func _on_state_changed() -> void:
 
 # --- daily claim ------------------------------------------------------------
 
+## The shared tap moment (M-004): one helper for every prototype button -
+## the scale dip through Motion.press, then exactly one tap sound.
+func _tap_feedback(button: BaseButton) -> void:
+	Motion.press(button)
+	Sfx.play("tap")
+
+
 func _on_claim_pressed() -> void:
 	if _preview_mode:
 		return
@@ -130,6 +137,12 @@ func _on_claim_pressed() -> void:
 	var data: Dictionary = res.get("data", {})
 	_reward_label.text = "+%d gems" % int(data.get("reward", 0))
 	_reward_label.visible = true
+	# The reward counts up into the top-bar gem counter (600 ms), gem
+	# particles travel from the claim button to it, gems sounds once.
+	var shell := get_node_or_null("/root/AppShell")
+	if shell != null and shell.has_method("play_claim_animation"):
+		shell.call("play_claim_animation", int(data.get("reward", 0)),
+			_claim_button.get_global_position() + _claim_button.size * 0.5)
 	# Reconcile the cache with what the server just granted, before the refresh.
 	var streak: Dictionary = _home.get("streak", {})
 	streak["claimed_today"] = true
@@ -343,6 +356,7 @@ func _build_spend_confirm() -> void:
 	cancel.theme_type_variation = "ButtonSecondary"
 	cancel.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 	cancel.pressed.connect(func() -> void: _confirm_overlay.visible = false)
+	cancel.button_down.connect(func(): _tap_feedback(cancel))
 	row.add_child(cancel)
 
 	var open := Button.new()
@@ -350,6 +364,7 @@ func _build_spend_confirm() -> void:
 	open.text = "Open"
 	open.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 	open.pressed.connect(_on_spend_confirmed)
+	open.button_down.connect(func(): _tap_feedback(open))
 	row.add_child(open)
 
 
@@ -418,6 +433,7 @@ func _build_ad(parent: Control) -> void:
 	_ad_button.name = "AdButton"
 	_ad_button.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 	_ad_button.pressed.connect(_on_ad_pressed)
+	_ad_button.button_down.connect(func(): _tap_feedback(_ad_button))
 	_ad_row.add_child(_ad_button)
 
 
@@ -592,6 +608,7 @@ func _build_faucet(parent: Control) -> void:
 	_faucet_button.add_theme_color_override("font_hover_color", Tokens.color(&"accent_secondary"))
 	_faucet_button.add_theme_color_override("font_pressed_color", Tokens.color(&"accent"))
 	_faucet_button.pressed.connect(_on_alpha_pressed)
+	_faucet_button.button_down.connect(func(): _tap_feedback(_faucet_button))
 	_faucet_row.add_child(_faucet_button)
 
 
@@ -625,6 +642,7 @@ func _build_daily(parent: Control) -> void:
 	_claim_button.name = "ClaimButton"
 	_claim_button.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 	_claim_button.pressed.connect(_on_claim_pressed)
+	_claim_button.button_down.connect(func(): _tap_feedback(_claim_button))
 	row.add_child(_claim_button)
 
 
@@ -656,6 +674,7 @@ func _build_pack(parent: Control) -> void:
 	_prev_button.add_theme_color_override("font_hover_color", Tokens.color(&"text_primary"))
 	_prev_button.add_theme_color_override("font_pressed_color", Tokens.color(&"accent"))
 	_prev_button.pressed.connect(_cycle_banner.bind(-1))
+	_prev_button.button_down.connect(func(): Motion.press(_prev_button))
 	banner_row.add_child(_prev_button)
 
 	_banner_label = Label.new()
@@ -677,6 +696,7 @@ func _build_pack(parent: Control) -> void:
 	_next_button.add_theme_color_override("font_hover_color", Tokens.color(&"text_primary"))
 	_next_button.add_theme_color_override("font_pressed_color", Tokens.color(&"accent"))
 	_next_button.pressed.connect(_cycle_banner.bind(1))
+	_next_button.button_down.connect(func(): Motion.press(_next_button))
 	banner_row.add_child(_next_button)
 
 	# Pack art placeholder: a plain panel with the banner name, no logos. The
@@ -713,6 +733,7 @@ func _build_pack(parent: Control) -> void:
 	_open_single.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_open_single.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 	_open_single.pressed.connect(_on_open_pressed.bind(1))
+	_open_single.button_down.connect(func(): _tap_feedback(_open_single))
 	buttons.add_child(_open_single)
 
 	_open_ten = Button.new()
@@ -720,6 +741,7 @@ func _build_pack(parent: Control) -> void:
 	_open_ten.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_open_ten.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 	_open_ten.pressed.connect(_on_open_pressed.bind(10))
+	_open_ten.button_down.connect(func(): _tap_feedback(_open_ten))
 	buttons.add_child(_open_ten)
 
 	_hint_label = Label.new()
@@ -775,6 +797,7 @@ func _build_info(parent: Control) -> void:
 	_holo_toggle.text = "Holo odds"
 	_holo_toggle.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 	_holo_toggle.toggled.connect(_on_holo_toggled)
+	_holo_toggle.button_down.connect(func(): _tap_feedback(_holo_toggle))
 	_info_row.add_child(_holo_toggle)
 
 	_holo_label = Label.new()
@@ -789,11 +812,17 @@ func _build_info(parent: Control) -> void:
 # --- screenshots ------------------------------------------------------------
 
 func screenshot_count() -> int:
-	return 3
+	return 5
 
 
 func screenshot_setup(i: int) -> String:
 	_ensure_built()
+	# Poses add throwaway nodes; states must not leak into each other's shot.
+	for child in get_children():
+		if child.name.begins_with("Pose"):
+			child.free()
+	if _reward_label != null:
+		_reward_label.visible = false
 	match i:
 		0:
 			set_preview_data(_demo_home(1600, false, false, false, 0), _demo_banners())
@@ -801,9 +830,70 @@ func screenshot_setup(i: int) -> String:
 		1:
 			set_preview_data(_demo_home(40, true, true, false, 0), _demo_banners())
 			return "poor_claimed_alpha"
-		_:
+		2:
 			set_preview_data(_demo_home(1600, false, false, true, 2), _demo_banners())
 			return "ads_enabled_two_used"
+		3:
+			set_preview_data(_demo_home(100, false, false, false, 0), _demo_banners())
+			_pose_claim_mid_countup()
+			return "claim_mid_countup"
+		_:
+			set_preview_data(_demo_home(1600, false, false, false, 0), _demo_banners())
+			_pose_cards_mid_flight()
+			return "cards_mid_flight"
+
+
+## Screenshot pose: the claim mid-count-up. The production count-up lives in
+## the shell's top-bar counter; this pose shows the tab's half of the moment -
+## the reward label up and the gem particles halfway from the claim button
+## toward the counter above.
+func _pose_claim_mid_countup() -> void:
+	_reward_label.text = "+600 gems"
+	_reward_label.visible = true
+	var from := _claim_button.get_global_position() + _claim_button.size * 0.5
+	for i in Motion.CLAIM_PARTICLE_COUNT:
+		var p := GemCounter.GemIcon.new()
+		p.name = "PoseParticle_%d" % i
+		p.custom_minimum_size = Vector2(14, 14)
+		p.size = Vector2(14, 14)
+		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(p)
+		# Halfway up the screen, loosely spread like the production spray.
+		p.global_position = from + Vector2(randf_range(-30, 30), -120.0 - randf_range(0, 60))
+
+
+## Screenshot pose: the received cards mid-flight to the Collection tab. The
+## production flight lives in the shell; this pose shows the same composition
+## - rarity-tinted cards partway from the pack (centre) toward the Collection
+## tab (bottom-right), shrinking as they go, with the dot they will light.
+func _pose_cards_mid_flight() -> void:
+	var ext := get_viewport_rect().size
+	var rarities := ["common", "rare", "epic", "legendary", "rare"]
+	for i in rarities.size():
+		var card := ColorRect.new()
+		card.name = "PoseFlyingCard_%d" % i
+		card.color = Tokens.rarity_color(rarities[i])
+		card.color.a = 0.9
+		card.custom_minimum_size = Vector2(48, 72)
+		card.size = Vector2(48, 72)
+		card.pivot_offset = Vector2(24, 36)
+		card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(card)
+		var t := 0.3 + 0.12 * i
+		card.global_position = Vector2(
+			ext.x * 0.5 + (ext.x * 0.5 - 80.0) * t - 24.0,
+			ext.y * 0.5 + (ext.y - 100.0 - ext.y * 0.5) * t - 36.0)
+		card.scale = Vector2.ONE * (1.0 - 0.45 * t)
+		card.rotation = -0.2 + 0.1 * i
+	# The dot the flight will light, drawn where the Collection tab sits.
+	var dot := ColorRect.new()
+	dot.name = "PoseNotificationDot"
+	dot.color = Tokens.color(&"reward")
+	dot.custom_minimum_size = Vector2(10, 10)
+	dot.size = Vector2(10, 10)
+	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(dot)
+	dot.global_position = Vector2(ext.x * 0.5 + 30.0, ext.y - 74.0)
 
 
 func _demo_home(gems: int, claimed: bool, alpha: bool, ads_enabled: bool, ads_today: int) -> Dictionary:

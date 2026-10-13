@@ -235,7 +235,9 @@ func test_arrows_cycle_banners() -> void:
 
 # --- screenshots --------------------------------------------------------------
 
-func test_home_tab_exposes_three_screenshot_states() -> void:
+func test_home_tab_exposes_five_screenshot_states() -> void:
+	# The three data states (ready, poor/claimed/alpha, ads) plus the two
+	# M-004 motion poses: claim mid-count-up and cards mid-flight.
 	var t: HomeTabScript = HomeTabScript.new()
-	assert_eq(t.screenshot_count(), 3)
+	assert_eq(t.screenshot_count(), 5)
 	t.free()

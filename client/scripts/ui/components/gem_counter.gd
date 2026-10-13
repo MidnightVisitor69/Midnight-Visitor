@@ -28,7 +28,12 @@ func _ready() -> void:
 	_label.text = "0"
 
 
-func set_count(value: int) -> void:
+## Set the displayed count. Any change tweens through Motion.count_up_value
+## (clamped ease-out), so the counter never jumps and never overshoots; only
+## an equal value or a detached label sets the text directly. `duration_ms`
+## defaults to the standard duration token; the daily claim passes
+## Motion.CLAIM_COUNT_UP_MS for its longer count-up.
+func set_count(value: int, duration_ms: float = -1.0) -> void:
 	if _label == null:
 		_shown = value
 		return
@@ -37,15 +42,19 @@ func set_count(value: int) -> void:
 	if not is_inside_tree() or from == value:
 		_label.text = str(value)
 		return
-	# Count up over the standard duration; motion that confirms a change.
+	if duration_ms <= 0.0:
+		duration_ms = Tokens.duration(&"standard")
+	# Raw progress in, eased value out: the curve lives in Motion so every
+	# counter in the game counts the same way (and is testable without a tree).
 	var tw := create_tween()
-	tw.tween_method(func(v: float) -> void:
-		_label.text = str(roundi(v)), float(from), float(value),
-		Tokens.duration(&"standard") / 1000.0)
+	tw.tween_method(func(p: float) -> void:
+		_label.text = str(roundi(Motion.count_up_value(float(from), float(value), p))),
+		0.0, 1.0, duration_ms / 1000.0)
 
 
 func count() -> int:
-	return int(_shown)
+	# _shown is -1 until the first set_count; the counter reads as 0 until then.
+	return int(_shown) if _shown >= 0 else 0
 
 
 ## The gem: an amber diamond with a 2-px stroke, drawn in code (no PNGs).

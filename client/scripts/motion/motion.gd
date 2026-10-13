@@ -32,7 +32,25 @@ static func scaled_ms(base_ms: float) -> float:
 # --- tap feedback ---------------------------------------------------------------
 const TAP_MS := 100.0
 ## A pressed control dips to this scale and springs back.
-const TAP_PRESS_SCALE := 0.94
+const TAP_PRESS_SCALE := 0.96
+## The shared tap's two phases (M-004): dip down, spring back up.
+const TAP_DOWN_MS := 80.0
+const TAP_UP_MS := 120.0
+## Meta key holding a button's in-flight tap tween, so the next press kills it.
+const TAP_TWEEN_META := "motion_tap_tween"
+
+# --- acquire moments (M-004) ----------------------------------------------------
+## Daily claim: the reward counts up into the gem counter in the top bar.
+const CLAIM_COUNT_UP_MS := 600.0
+## Soft gem particles travel from the claim button to the counter.
+const CLAIM_PARTICLE_MS := 500.0
+const CLAIM_PARTICLE_COUNT := 6
+## Pack Done: the received cards shrink and fly to the Collection tab button.
+const ACQUIRE_FLY_MS := 350.0
+const ACQUIRE_STAGGER_MS := 40.0
+## The tab button's arrival bump: a quick 1.08 that settles back to 1.0.
+const ACQUIRE_SCALE_BUMP := 1.08
+const ACQUIRE_SCALE_BUMP_MS := 120.0
 
 # --- the pack ------------------------------------------------------------------
 ## Degrees the pack leans toward a finger before the rip. Small on purpose: it
@@ -132,3 +150,34 @@ static func flip_scale(p: float) -> float:
 static func shake_offset(p: float, amplitude: float = PACK_SHAKE_AMPLITUDE_PX) -> float:
 	var t := clampf(p, 0.0, 1.0)
 	return sin(t * TAU * PACK_SHAKE_CYCLES) * t * amplitude
+
+
+# --- shared tap feedback --------------------------------------------------------
+## The one tap helper every prototype button uses (M-004): dip to
+## TAP_PRESS_SCALE over TAP_DOWN_MS, spring back over TAP_UP_MS. One tween
+## chain, so a fast double tap replaces the in-flight tween instead of two
+## tweens fighting over the same scale. The tap sound stays at the call site
+## (Sfx owns the audio bus); this helper only moves pixels.
+static func press(button: BaseButton) -> void:
+	if button == null or not is_instance_valid(button) or not button.is_inside_tree():
+		return
+	var prev: Variant = button.get_meta(TAP_TWEEN_META, null)
+	if prev is Tween and (prev as Tween).is_valid():
+		(prev as Tween).kill()
+	var tw := button.create_tween()
+	button.set_meta(TAP_TWEEN_META, tw)
+	tw.tween_property(button, "scale", Vector2.ONE * TAP_PRESS_SCALE,
+		TAP_DOWN_MS / 1000.0).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(button, "scale", Vector2.ONE,
+		TAP_UP_MS / 1000.0).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+# --- count-up curve --------------------------------------------------------------
+## The one count-up curve (M-004): ease-out cubic over raw progress, clamped
+## to [0, 1]. Every gem counter tween runs through here so the displayed
+## value never passes the target and lands exactly on it: the clamp is the
+## guard, the cubic is the feel. Pure, so a test can walk the whole curve.
+static func count_up_value(from: float, to: float, progress: float) -> float:
+	var t := clampf(progress, 0.0, 1.0)
+	var k := 1.0 - pow(1.0 - t, 3.0)
+	return from + (to - from) * k

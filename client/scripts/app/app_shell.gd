@@ -63,7 +63,7 @@ var _top_bar: PanelContainer
 var _content: Control
 var _tab_bar: PanelContainer
 var _overlay: CenterContainer
-var _gem_label: Label
+var _gem_counter: GemCounter
 var _status_label: Label
 var _retry_button: Button
 var _title_label: Label
@@ -74,6 +74,10 @@ var _settings_screen: Control
 
 ## Injectable Settings for tests; null means the autoload.
 var settings: Node = null
+## Injectable Sfx for tests; null means the autoload.
+var sfx: Node = null
+## Injectable GameState for tests; null means the autoload.
+var state_override: Node = null
 
 
 func _ready() -> void:
@@ -146,9 +150,21 @@ func _connect_autoloads() -> void:
 
 func _state_node() -> Node:
 	# Tests build the shell detached from the tree; absolute /root lookups error there.
+	if state_override != null:
+		return state_override
 	if not is_inside_tree():
 		return null
 	return get_node_or_null("/root/GameState")
+
+
+## Injectable Sfx for tests; null means the autoload (same lazy pattern as
+## PackOpening: the shell also builds where no autoloads exist).
+func _sfx() -> Node:
+	if sfx != null:
+		return sfx
+	if not is_inside_tree():
+		return null
+	return get_node_or_null("/root/Sfx")
 
 
 func _open_holo_test() -> void:
@@ -246,6 +262,19 @@ func shell_controls() -> Array[Control]:
 	return out
 
 
+## The top-bar gem counter (tests read count() and drive set_count).
+func gem_counter() -> GemCounter:
+	_ensure_built()
+	return _gem_counter
+
+
+## Whether the Collection tab's notification dot is currently visible.
+func collection_dot_visible() -> bool:
+	_ensure_built()
+	var dot := _collection_dot()
+	return dot != null and dot.visible
+
+
 # --- accessibility helpers --------------------------------------------------
 
 func _a11y(control: Control, a_name: String, a_desc := "") -> void:
@@ -320,13 +349,11 @@ func _build_top_bar() -> void:
 	_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(_title_label)
 
-	_gem_label = Label.new()
-	_gem_label.name = "Gems"
-	_gem_label.text = "Gems: --"
-	_gem_label.theme_type_variation = "Body"
-	_gem_label.add_theme_color_override("font_color", Tokens.color(&"reward"))
-	_gem_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(_gem_label)
+	# The ONE currency display (AGENTS.md): the shared GemCounter component,
+	# which tweens to every new value instead of jumping (M-004).
+	_gem_counter = GemCounter.new()
+	_gem_counter.name = "GemCounter"
+	row.add_child(_gem_counter)
 
 	# The holo bench never ships enabled, but devs need it reachable.
 	if is_debug:
@@ -336,6 +363,7 @@ func _build_top_bar() -> void:
 		_holo_button.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 		_holo_button.focus_mode = Control.FOCUS_ALL
 		_holo_button.add_theme_stylebox_override("focus", _focus_style())
+		_holo_button.button_down.connect(func(): Motion.press(_holo_button))
 		_holo_button.pressed.connect(_open_holo_test)
 		_a11y(_holo_button, "Holo test bench", "Open the developer holo test scene")
 		row.add_child(_holo_button)
@@ -348,6 +376,7 @@ func _build_top_bar() -> void:
 	_gear_button.custom_minimum_size = Vector2(MIN_TAP_DP, MIN_TAP_DP)
 	_gear_button.focus_mode = Control.FOCUS_ALL
 	_gear_button.add_theme_stylebox_override("focus", _focus_style())
+	_gear_button.button_down.connect(func(): Motion.press(_gear_button))
 	_gear_button.tooltip_text = "Settings"
 	_gear_button.pressed.connect(_open_settings)
 	_a11y(_gear_button, "Settings", "Open the settings screen")
@@ -406,10 +435,30 @@ func _build_tab_bar() -> void:
 		b.custom_minimum_size = Vector2(0.0, MIN_TAP_DP)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_tab_button_style(b)
-		b.pressed.connect(_select_tab.bind(id))
+		b.button_down.connect(func(): Motion.press(b))
+		b.pressed.connect(func() -> void:
+			Sfx.play("tap")
+			_select_tab.call(id))
 		_a11y(b, TAB_TITLES[id], "Switch to the %s tab" % TAB_TITLES[id])
 		row.add_child(b)
 		_tab_buttons.append(b)
+		if id == TAB_COLLECTION:
+			# The one notification dot (AGENTS.md: max one per tab). Created
+			# exactly once and only ever shown/hidden, so a second dot is
+			# structurally impossible (M-004).
+			var dot := ColorRect.new()
+			dot.name = "NotificationDot"
+			dot.color = Tokens.color(&"reward")
+			dot.custom_minimum_size = Vector2(10, 10)
+			dot.size = Vector2(10, 10)
+			dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			dot.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+			dot.offset_left = -14
+			dot.offset_top = 4
+			dot.offset_right = -4
+			dot.offset_bottom = 14
+			dot.visible = false
+			b.add_child(dot)
 
 
 ## Quiet tabs: only the ACTIVE tab gets the thin neon bar (D-001's TabBar
@@ -481,6 +530,7 @@ func _build_overlay() -> void:
 	_retry_button.focus_mode = Control.FOCUS_ALL
 	_retry_button.add_theme_stylebox_override("focus", _focus_style())
 	_retry_button.visible = false
+	_retry_button.button_down.connect(func(): Motion.press(_retry_button))
 	_retry_button.pressed.connect(_begin_sign_in)
 	_a11y(_retry_button, "Retry", "Try loading your account again")
 	col.add_child(_retry_button)
@@ -497,6 +547,9 @@ func _select_tab(id: String) -> void:
 		b.button_pressed = on
 		# Weight change marks the active tab without a second colour.
 		b.add_theme_font_override("font", Tokens.ui_font(700 if on else 500))
+	if id == TAB_COLLECTION:
+		# Opening the Collection is what the dot was for; it clears (M-004).
+		on_collection_tab_opened()
 
 
 func _set_status(state: String, message: String) -> void:
@@ -522,13 +575,158 @@ func _sync_status() -> void:
 
 
 func _update_gems() -> void:
-	if _gem_label == null:
+	if _gem_counter == null:
 		return
 	var amount: Variant = null
 	var gs := _state_node()
 	if gs != null:
 		amount = (gs.get("home") as Dictionary).get("gems")
-	_gem_label.text = "Gems: --" if amount == null else "Gems: %d" % int(amount)
+	# Every gem change tweens to the new value, never jumps (M-004): faucet,
+	# ad reward, pack spend and claim refresh all land here via home_changed.
+	_gem_counter.set_count(0 if amount == null else int(amount))
+
+
+# --- acquire moments (M-004) ----------------------------------------------------
+
+## Daily claim: the reward counts up into the top-bar gem counter over 600 ms
+## while a few soft gem particles travel from the claim button to the
+## counter, and the gems sound plays once. Called by the Home tab's claim
+## handler with the server-confirmed reward and the button's global position.
+func play_claim_animation(reward: int, claim_button_global_pos: Vector2) -> void:
+	if _gem_counter == null:
+		return
+	_gem_counter.set_count(_gem_counter.count() + reward, Motion.CLAIM_COUNT_UP_MS)
+	_spawn_claim_particles(claim_button_global_pos)
+	var s := _sfx()
+	if s != null and s.has_method("play"):
+		s.call("play", "gems")
+
+
+## A few soft gem diamonds from the claim button to the gem icon. Cheap by
+## design: one tween per particle, no texture - the diamond is drawn, not an
+## image (DESIGNER.md).
+func _spawn_claim_particles(from_global: Vector2) -> void:
+	if not is_inside_tree() or _gem_counter == null:
+		return
+	# The counter's gem icon is its first 28x28 child cell; its centre is
+	# close enough to the counter's top-left + half an icon.
+	var to := _gem_counter.get_global_position() + Vector2(14, 14)
+	for i in Motion.CLAIM_PARTICLE_COUNT:
+		var p := GemCounter.GemIcon.new()
+		p.name = "ClaimParticle_%d" % i
+		p.custom_minimum_size = Vector2(14, 14)
+		p.size = Vector2(14, 14)
+		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		# Slightly transparent, not a new colour: the token scan bans Color(
+		# literals here, and the diamond's own fill is already the reward token.
+		p.modulate.a = 0.9
+		add_child(p)
+		p.global_position = from_global + Vector2(randf_range(-8, 8), randf_range(-8, 8))
+		var tw := create_tween()
+		if i > 0:
+			tw.tween_interval(Motion.CLAIM_PARTICLE_MS * 0.04 * i)
+		tw.tween_property(p, "global_position",
+			to + Vector2(randf_range(-6, 6), randf_range(-6, 6)),
+			Motion.CLAIM_PARTICLE_MS / 1000.0
+		).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+		tw.tween_callback(p.queue_free)
+
+
+## Pack Done: the received cards shrink and fly to the Collection tab button
+## in a quick stagger; on arrival the button bumps to 1.08, the acquire
+## sound plays once (not per card), and the Collection's one notification
+## dot appears until the tab is opened. `cards` are the pull's card
+## dictionaries (tinted by rarity); `start_positions` are their global
+## positions on the summary grid, parallel to `cards`.
+func play_acquire_animation(cards: Array, start_positions: Array) -> void:
+	var tab_button := _tab_button_for(TAB_COLLECTION)
+	if tab_button == null or not is_inside_tree():
+		return
+	var total := mini(cards.size(), start_positions.size())
+	if total == 0:
+		return
+	var target := tab_button.get_global_position() + tab_button.size * 0.5
+	for i in total:
+		var card: Dictionary = cards[i] if cards[i] is Dictionary else {}
+		var flyer := ColorRect.new()
+		flyer.name = "FlyingCard_%d" % i
+		flyer.color = Tokens.rarity_color(str(card.get("rarity", "common")))
+		flyer.color.a = 0.9
+		flyer.custom_minimum_size = Vector2(48, 72)
+		flyer.size = Vector2(48, 72)
+		flyer.pivot_offset = Vector2(24, 36)
+		flyer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(flyer)
+		flyer.global_position = (start_positions[i] as Vector2) - Vector2(24, 36)
+		var tw := create_tween()
+		if i > 0:
+			tw.tween_interval(Motion.ACQUIRE_STAGGER_MS / 1000.0 * i)
+		tw.tween_property(flyer, "global_position", target,
+			Motion.ACQUIRE_FLY_MS / 1000.0
+		).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw.tween_property(flyer, "scale", Vector2.ZERO,
+			Motion.ACQUIRE_FLY_MS / 1000.0
+		).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		if i == total - 1:
+			# The last card to land is the arrival: one bump, one dot, one
+			# sound per pack - never per card (M-004).
+			tw.finished.connect(func() -> void: _arrive_collection(tab_button))
+
+
+## The arrival (M-004): the tab button bumps to 1.08 and settles, the
+## Collection's one notification dot appears, and the acquire sound plays -
+## once per pack, because only the last card's flight calls this.
+func _arrive_collection(tab_button: Button) -> void:
+	_bump_collection_tab(tab_button)
+	show_collection_dot()
+	var s := _sfx()
+	if s != null and s.has_method("play"):
+		s.call("play", "acquire")
+
+
+## The arrival bump: a quick 1.08 that settles back to 1.0.
+func _bump_collection_tab(tab_button: Button) -> void:
+	var tw := tab_button.create_tween()
+	tw.tween_property(tab_button, "scale", Vector2.ONE * Motion.ACQUIRE_SCALE_BUMP,
+		Motion.ACQUIRE_SCALE_BUMP_MS / 1000.0
+	).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(tab_button, "scale", Vector2.ONE,
+		Motion.ACQUIRE_SCALE_BUMP_MS / 1000.0
+	).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+## Show the Collection tab's notification dot. Idempotent: the dot node is
+## created exactly once in _build_tab_bar, so showing it again cannot create
+## a second dot (M-004; AGENTS.md: max one dot per tab).
+func show_collection_dot() -> void:
+	var dot := _collection_dot()
+	if dot != null:
+		dot.visible = true
+
+
+## Opening the Collection tab clears its dot. Called from _select_tab.
+func on_collection_tab_opened() -> void:
+	var dot := _collection_dot()
+	if dot != null:
+		dot.visible = false
+
+
+## The Collection tab's notification dot, or null when not built yet. The dot
+## is created in code, so it has no owner: pass owned = false or it is never
+## found and the dot silently never lights (caught by the M-004 tests).
+func _collection_dot() -> Control:
+	var b := _tab_button_for(TAB_COLLECTION)
+	if b == null:
+		return null
+	return b.find_child("NotificationDot", false, false) as Control
+
+
+## The tab button for a tab id, or null when the bar has no such tab.
+func _tab_button_for(tab_id: String) -> Button:
+	for b in _tab_buttons:
+		if b.name == "Tab_" + tab_id:
+			return b
+	return null
 
 
 # --- screenshots ------------------------------------------------------------

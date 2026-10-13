@@ -464,6 +464,9 @@ func _ensure_built() -> void:
 	close_btn.add_theme_color_override("font_hover_color", Tokens.color(&"text_primary"))
 	close_btn.add_theme_color_override("font_pressed_color", Tokens.color(&"accent"))
 	close_btn.pressed.connect(close)
+	close_btn.button_down.connect(func() -> void:
+		Motion.press(close_btn)
+		Sfx.play("tap"))
 	add_child(close_btn)
 	close_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 	close_btn.offset_left = Tokens.space(&"s12")

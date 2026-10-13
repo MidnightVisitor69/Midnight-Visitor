@@ -370,7 +370,20 @@ func _go_summary() -> void:
 ## "Done" is the only place the journal is cleared: until then a crash on the
 ## summary has to be able to bring the same pack back.
 func _on_done() -> void:
-	_play("acquire")
+	# M-004: the received cards shrink and fly to the Collection tab button.
+	# The shell owns the arrival: tab bump, the single acquire sound, and the
+	# notification dot. (The sound lives there so it plays exactly once per
+	# pack, not per card.)
+	var shell := get_node_or_null("/root/AppShell")
+	if shell != null and shell.has_method("play_acquire_animation"):
+		var positions: Array[Vector2] = []
+		for child in _summary_grid.get_children():
+			if not (child is Control):
+				continue
+			var card_holder := (child as Control).find_child("Card", false)
+			if card_holder is Control:
+				positions.append(card_holder.get_global_position() + card_holder.size * 0.5)
+		shell.call("play_acquire_animation", _cards, positions)
 	PendingPackScript.finish()
 	closed.emit()
 
@@ -861,6 +874,9 @@ func _ensure_built() -> void:
 	_skip_button.add_theme_color_override("font_hover_color", Tokens.color(&"text_primary"))
 	_skip_button.add_theme_color_override("font_pressed_color", Tokens.color(&"accent"))
 	_skip_button.pressed.connect(_skip)
+	_skip_button.button_down.connect(func() -> void:
+		Motion.press(_skip_button)
+		Sfx.play("tap"))
 	_skip_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_skip_button.offset_left = -MIN_TAP_DP * 2.0 - Tokens.space(&"s16")
 	_skip_button.offset_top = -MIN_TAP_DP - Tokens.space(&"s24")
@@ -1000,6 +1016,9 @@ func _build_summary_panel() -> void:
 	_done_button.custom_minimum_size = Vector2(MIN_TAP_DP * 3.0, MIN_TAP_DP)
 	_done_button.focus_mode = Control.FOCUS_NONE
 	_done_button.pressed.connect(_on_done)
+	_done_button.button_down.connect(func() -> void:
+		Motion.press(_done_button)
+		Sfx.play("tap"))
 	var done_row := CenterContainer.new()
 	done_row.name = "DoneRow"
 	done_row.add_child(_done_button)

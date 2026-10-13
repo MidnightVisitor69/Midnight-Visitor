@@ -173,6 +173,7 @@ func _ensure_built() -> void:
 		b.text = f.capitalize()
 		b.button_pressed = f == "all"
 		b.pressed.connect(_select_filter.bind(f))
+		b.button_down.connect(func(): Motion.press(b))
 		_filter_row.add_child(b)
 		_filter_buttons.append(b)
 
@@ -419,9 +420,9 @@ func _make_tile(group: Dictionary, tile_size: Vector2, index: int) -> Control:
 		"set_id": str(group.get("set_id", "")),
 	})
 	view.set_variant(str(group["variant"]))
-	# Tap feedback: the card dips under the finger, nothing else moves.
-	tile.button_down.connect(_dip.bind(view, true))
-	tile.button_up.connect(_dip.bind(view, false))
+	# Tap feedback (M-004): the tile dips through the shared Motion.press, the
+	# one helper every prototype button uses.
+	tile.button_down.connect(func(): Motion.press(tile))
 
 	if int(group["copies"]) > 1:
 		var badge := Badge.new()
@@ -436,16 +437,6 @@ func _make_tile(group: Dictionary, tile_size: Vector2, index: int) -> Control:
 		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		tile.add_child(badge)
 	return tile
-
-
-## Pressed-state dip on the card itself (Motion.TAP_PRESS_SCALE).
-func _dip(view: Control, down: bool) -> void:
-	if not is_instance_valid(view):
-		return
-	var target := Motion.TAP_PRESS_SCALE if down else 1.0
-	var tw := view.create_tween()
-	tw.tween_property(view, "scale", Vector2.ONE * target,
-			Motion.TAP_MS / 1000.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 
 # --- detail ---------------------------------------------------------------------

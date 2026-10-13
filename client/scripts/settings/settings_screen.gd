@@ -289,6 +289,9 @@ func _build_top_bar() -> void:
 	for state_name in ["font_color", "font_hover_color", "font_pressed_color"]:
 		back.add_theme_color_override(state_name, Tokens.color(&"text_primary"))
 	back.pressed.connect(_on_back)
+	back.button_down.connect(func() -> void:
+		Motion.press(back)
+		Sfx.play("tap"))
 	_a11y(back, "Back", "Close settings and return to the game")
 	row.add_child(back)
 	_controls.append(back)
@@ -529,6 +532,9 @@ func _action_row(parent: VBoxContainer, label: String, handler: Callable,
 	for state_name in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
 		row.add_theme_color_override(state_name, tint)
 	row.pressed.connect(handler)
+	row.button_down.connect(func() -> void:
+		Motion.press(row)
+		Sfx.play("tap"))
 	_a11y(row, label, desc)
 	parent.add_child(row)
 	_rows.append(row)
@@ -722,6 +728,9 @@ func _build_overlay() -> void:
 	_overlay_cancel.focus_mode = Control.FOCUS_ALL
 	_overlay_cancel.add_theme_stylebox_override("focus", _focus_style())
 	_overlay_cancel.pressed.connect(_on_overlay_cancel)
+	_overlay_cancel.button_down.connect(func() -> void:
+		Motion.press(_overlay_cancel)
+		Sfx.play("tap"))
 	_a11y(_overlay_cancel, "Cancel", "Dismiss this dialog")
 	buttons.add_child(_overlay_cancel)
 	_controls.append(_overlay_cancel)
@@ -732,6 +741,9 @@ func _build_overlay() -> void:
 	_overlay_confirm.focus_mode = Control.FOCUS_ALL
 	_overlay_confirm.add_theme_stylebox_override("focus", _focus_style())
 	_overlay_confirm.pressed.connect(_on_overlay_confirm)
+	_overlay_confirm.button_down.connect(func() -> void:
+		Motion.press(_overlay_confirm)
+		Sfx.play("tap"))
 	_a11y(_overlay_confirm, "Confirm", "Accept this dialog")
 	buttons.add_child(_overlay_confirm)
 	_controls.append(_overlay_confirm)

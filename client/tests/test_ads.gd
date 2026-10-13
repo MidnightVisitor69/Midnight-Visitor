@@ -323,7 +323,9 @@ func test_server_source_carries_no_key_name_literal() -> void:
 
 # --- Screenshot states --------------------------------------------------------
 
-func test_home_tab_exposes_three_screenshot_states() -> void:
+func test_home_tab_exposes_five_screenshot_states() -> void:
+	# Three data states plus the two M-004 motion poses (claim mid-count-up,
+	# cards mid-flight); the ads state is one of the three.
 	var t: HomeTabScript = HomeTabScript.new()
-	assert_eq(t.screenshot_count(), 3)
+	assert_eq(t.screenshot_count(), 5)
 	t.free()
